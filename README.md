@@ -70,48 +70,36 @@ I decided to create a tool that isn't just a simple script, but a professional, 
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/sweep.git
+git clone https://github.com/abdulrasol/sweep.git
 cd sweep
 ```
 
 ### 2. Install Dependencies
 
 ```bash
-npm install
+pnpm install
 ```
 
 ### 3. Run in Development
 
 ```bash
-npm run tauri dev
+cargo tauri dev
 ```
 
 ---
 
 ## 🏗 Building for Production
 
-Sweep is designed to be cross-platform. To build a standalone executable:
-
-### MacOS
+Sweep is designed to be cross-platform. To build a standalone executable for your current OS:
 
 ```bash
-npm run tauri build
-# Outputs a .dmg and .app in src-tauri/target/release/bundle/dmg/
+cargo tauri build
 ```
 
-### Windows
-
-```bash
-npm run tauri build
-# Outputs an .msi and .exe in src-tauri/target/release/bundle/msi/
-```
-
-### Linux
-
-```bash
-npm run tauri build
-# Outputs a .deb and .AppImage in src-tauri/target/release/bundle/appimage/
-```
+### Artifact Locations
+- **macOS**: `src-tauri/target/release/bundle/dmg/`
+- **Windows**: `src-tauri/target/release/bundle/msi/`
+- **Linux**: `src-tauri/target/release/bundle/deb/`
 
 ---
 
