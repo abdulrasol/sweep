@@ -2,8 +2,7 @@ name: "Release"
 
 on:
   push:
-    branches:
-      - main
+    # Only build/release when a tag starting with 'v' is pushed (e.g., v0.0.1)
     tags:
       - 'v*'
 
