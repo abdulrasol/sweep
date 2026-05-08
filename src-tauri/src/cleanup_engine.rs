@@ -205,13 +205,27 @@ pub fn scan_directory(base_path: &str, enabled_modules: Vec<String>, ignored_pat
         .collect();
 
     if !active_frameworks.is_empty() {
-        for entry in WalkDir::new(base_path)
+        let mut it = WalkDir::new(base_path)
             .max_depth(5)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
+            .into_iter();
+
+        while let Some(res) = it.next() {
+            let entry = match res {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            
             let path = entry.path();
             let path_str = path.to_string_lossy().to_string();
+            
+            // Optimization: Skip entering large dependency/build folders to save CPU/IO
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name == "node_modules" || name == ".git" || name == "target" || name == "build" || name == "dist" || name == ".next" || name == ".cache" {
+                    it.skip_current_dir();
+                    continue;
+                }
+            }
             
             if ignored_paths.iter().any(|ignored| path_str.starts_with(ignored)) {
                 continue;
