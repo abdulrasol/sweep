@@ -39,7 +39,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "RWSVFymLncXFSJq3XH3zQbmGd2/VEPHsNFZFfePZ5b0flfCko04YxYcW",
+      "pubkey": "RWS6v5tjxT+nunHJaEquHUkCYawC18HaG3SB9+7gItVgQ2A2MNE7rkRJ",
       "endpoints": [
         "https://abdulrasol.github.io/sweep/update.json"
       ]
