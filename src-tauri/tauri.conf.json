@@ -6,7 +6,7 @@
     "distDir": "../dist"
   },
   "package": {
-    "productName": "DevClean",
+    "productName": "Sweep",
     "version": "1.0.4"
   },
   "tauri": {
@@ -58,7 +58,7 @@
         "fullscreen": false,
         "height": 720,
         "resizable": true,
-        "title": "DevClean",
+        "title": "Sweep",
         "width": 1080
       }
     ]

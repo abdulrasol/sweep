@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import ScanView from './views/ScanView';
@@ -13,6 +13,42 @@ type View = 'scan' | 'review' | 'cleanup' | 'analytics' | 'settings' | 'about';
 export default function App() {
   const [activeView, setActiveView] = useState<View>('scan');
   const [isCleaning, setIsCleaning] = useState(false);
+  const [accent, setAccent] = useState('emerald');
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+
+  const accentColors: Record<string, string> = {
+    emerald: '#10b981',
+    blue: '#3b82f6',
+    purple: '#a855f7',
+    rose: '#f43f5e',
+    amber: '#f59e0b',
+  };
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const primaryColor = accentColors[accent];
+    
+    // Update CSS variables
+    root.style.setProperty('--color-primary', primaryColor);
+    
+    if (theme === 'light') {
+      root.style.setProperty('--color-surface', '#ffffff');
+      root.style.setProperty('--color-surface-dim', '#f8fafc');
+      root.style.setProperty('--color-surface-bright', '#f1f5f9');
+      root.style.setProperty('--color-surface-container', '#f1f5f9');
+      root.style.setProperty('--color-on-surface', '#0f172a');
+      root.style.setProperty('--color-outline', '#e2e8f0');
+      root.style.setProperty('--color-outline-variant', '#cbd5e1');
+    } else {
+      root.style.setProperty('--color-surface', '#0a0a0a');
+      root.style.setProperty('--color-surface-dim', '#0a0a0a');
+      root.style.setProperty('--color-surface-bright', '#151515');
+      root.style.setProperty('--color-surface-container', '#0f0f0f');
+      root.style.setProperty('--color-on-surface', '#f4f4f5');
+      root.style.setProperty('--color-outline', '#27272a');
+      root.style.setProperty('--color-outline-variant', '#3f3f46');
+    }
+  }, [accent, theme]);
 
   const handleInitiateScan = (path: string) => {
     console.log(`Scanning path: ${path}`);
@@ -39,7 +75,14 @@ export default function App() {
       case 'cleanup':
         return <ExecutionView onAbort={handleAbort} />;
       case 'settings':
-        return <SettingsView />;
+        return (
+          <SettingsView 
+            accent={accent} 
+            onAccentChange={setAccent} 
+            theme={theme} 
+            onThemeChange={setTheme} 
+          />
+        );
       case 'about':
         return <AboutView />;
       default:
@@ -64,8 +107,8 @@ export default function App() {
       case 'review': return 'Review Targets';
       case 'cleanup': return 'Purge Sequence';
       case 'settings': return 'System Settings';
-      case 'about': return 'About DevClean';
-      default: return 'DevUtil';
+      case 'about': return 'About Sweep';
+      default: return 'Sweep';
     }
   };
 

@@ -18,12 +18,17 @@ export default function AboutView() {
     <div className="max-w-4xl mx-auto py-12 px-6 space-y-10">
       {/* Brand Section */}
       <section className="text-center space-y-4">
-        <div className="w-20 h-20 bg-primary/10 border border-primary/20 rounded-2xl flex items-center justify-center mx-auto shadow-2xl">
-          <ShieldCheck className="w-10 h-10 text-primary" />
+        <div className="w-24 h-24 rounded-3xl overflow-hidden border border-primary/20 mx-auto shadow-2xl">
+          <img 
+            src="/input_file_0.png" 
+            alt="Sweep Logo" 
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+          />
         </div>
         <div className="space-y-1">
-          <h2 className="text-3xl font-bold tracking-tighter">DevClean Orchestrator</h2>
-          <p className="text-on-surface/40 font-mono text-xs uppercase tracking-[0.3em]">Version 1.0.4-stable</p>
+          <h2 className="text-3xl font-bold tracking-tighter text-on-surface">Sweep Orchestrator</h2>
+          <p className="text-primary font-mono text-xs uppercase tracking-[0.3em]">Version 1.0.4-stable</p>
         </div>
       </section>
 

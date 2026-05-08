@@ -18,12 +18,17 @@ export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
   return (
     <aside className="w-60 bg-surface-container border-r border-outline flex flex-col h-full shrink-0">
       <div className="p-6 flex items-center gap-4 shrink-0">
-        <div className="w-8 h-8 bg-outline-variant rounded-md flex items-center justify-center text-xs font-bold border border-outline shadow-sm">
-          <Database className="w-4 h-4 text-primary" />
+        <div className="w-10 h-10 rounded-xl overflow-hidden border border-outline shadow-2xl">
+          <img 
+            src="/input_file_0.png" 
+            alt="Sweep Logo" 
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+          />
         </div>
         <div className="flex flex-col">
-          <h1 className="text-sm font-semibold tracking-tight text-on-surface">DevClean</h1>
-          <p className="text-[10px] text-on-surface/40 uppercase tracking-widest font-mono">v1.0.4-stable</p>
+          <h1 className="text-base font-bold tracking-tight text-on-surface">Sweep</h1>
+          <p className="text-[9px] text-on-surface/40 uppercase tracking-widest font-mono">v1.0.4-stable</p>
         </div>
       </div>
 

@@ -1,16 +1,20 @@
 import { Moon, Sun, Palette, Monitor, Bell, Shield, Terminal } from 'lucide-react';
 import { useState } from 'react';
 
-export default function SettingsView() {
-  const [accent, setAccent] = useState('emerald');
-  const [theme, setTheme] = useState('dark');
+interface SettingsViewProps {
+  accent: string;
+  onAccentChange: (accent: string) => void;
+  theme: 'light' | 'dark';
+  onThemeChange: (theme: 'light' | 'dark') => void;
+}
 
+export default function SettingsView({ accent, onAccentChange, theme, onThemeChange }: SettingsViewProps) {
   const colors = [
-    { id: 'emerald', label: 'Emerald', class: 'bg-[#10b981]' },
-    { id: 'blue', label: 'Sapphire', class: 'bg-[#3b82f6]' },
-    { id: 'purple', label: 'Amethyst', class: 'bg-[#a855f7]' },
-    { id: 'rose', label: 'Crimson', class: 'bg-[#f43f5e]' },
-    { id: 'amber', label: 'Amber', class: 'bg-[#f59e0b]' },
+    { id: 'emerald', label: 'Emerald', hex: '#10b981', class: 'bg-[#10b981]' },
+    { id: 'blue', label: 'Sapphire', hex: '#3b82f6', class: 'bg-[#3b82f6]' },
+    { id: 'purple', label: 'Amethyst', hex: '#a855f7', class: 'bg-[#a855f7]' },
+    { id: 'rose', label: 'Crimson', hex: '#f43f5e', class: 'bg-[#f43f5e]' },
+    { id: 'amber', label: 'Amber', hex: '#f59e0b', class: 'bg-[#f59e0b]' },
   ];
 
   return (
@@ -24,7 +28,7 @@ export default function SettingsView() {
 
       <div className="grid grid-cols-1 gap-6">
         {/* Appearance Section */}
-        <div className="bg-surface-container border border-outline rounded-2xl overflow-hidden">
+        <div className="bg-surface-container border border-outline rounded-2xl overflow-hidden shadow-sm">
           <div className="px-6 py-4 border-b border-outline bg-surface-bright/30 flex items-center gap-3">
             <Palette className="w-4 h-4 text-primary" />
             <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/60">Appearance & Identity</h3>
@@ -39,13 +43,13 @@ export default function SettingsView() {
               </div>
               <div className="flex bg-surface-dim border border-outline rounded-xl p-1">
                 <button 
-                  onClick={() => setTheme('light')}
+                  onClick={() => onThemeChange('light')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${theme === 'light' ? 'bg-surface-bright text-on-surface shadow-sm' : 'text-on-surface/30 hover:text-on-surface/60'}`}
                 >
                   <Sun className="w-3.5 h-3.5" /> Light
                 </button>
                 <button 
-                  onClick={() => setTheme('dark')}
+                  onClick={() => onThemeChange('dark')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${theme === 'dark' ? 'bg-surface-bright text-on-surface shadow-sm' : 'text-on-surface/30 hover:text-on-surface/60'}`}
                 >
                   <Moon className="w-3.5 h-3.5" /> Dark
@@ -65,10 +69,13 @@ export default function SettingsView() {
                 {colors.map((color) => (
                   <button
                     key={color.id}
-                    onClick={() => setAccent(color.id)}
+                    onClick={() => onAccentChange(color.id)}
                     className={`group flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${accent === color.id ? 'border-primary bg-primary/[0.03]' : 'border-outline hover:border-outline-variant bg-surface-dim'}`}
                   >
-                    <div className={`w-4 h-4 rounded-full ${color.class} ${accent === color.id ? 'shadow-[0_0_10px_rgba(16,185,129,0.4)]' : ''}`} />
+                    <div 
+                      className={`w-4 h-4 rounded-full ${color.class}`} 
+                      style={{ boxShadow: accent === color.id ? `0 0 10px ${color.hex}66` : 'none' }}
+                    />
                     <span className={`text-xs font-bold ${accent === color.id ? 'text-on-surface' : 'text-on-surface/40'}`}>{color.label}</span>
                   </button>
                 ))}

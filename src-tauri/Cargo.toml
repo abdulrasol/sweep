@@ -1,7 +1,7 @@
 [package]
 name = "dev-clean"
 version = "0.1.0"
-description = "DevClean - Technical Utility"
+description = "Sweep - Refined Technical Utility"
 authors = ["you <you@example.com>"]
 edition = "2021"
 
