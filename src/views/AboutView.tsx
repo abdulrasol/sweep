@@ -2,6 +2,7 @@ import { Globe, Mail, Github, RefreshCw, CheckCircle2, Zap } from 'lucide-react'
 import { motion } from 'motion/react';
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-shell';
 
 export default function AboutView() {
   const [checking, setChecking] = useState(false);
@@ -20,12 +21,26 @@ export default function AboutView() {
     fetchVersion();
   }, []);
 
-  const handleCheckUpdate = () => {
+  const handleCheckUpdate = async () => {
     setChecking(true);
-    setTimeout(() => {
+    try {
+      const response = await fetch('https://api.github.com/repos/abdulrasol/sweep/releases/latest');
+      if (response.ok) {
+        const data = await response.json();
+        // Automatically open the latest release page on GitHub
+        await open(data.html_url);
+      } else {
+        // Fallback: open the general releases page if latest API fails
+        await open('https://github.com/abdulrasol/sweep/releases');
+      }
+    } catch (err) {
+      console.error("Failed to check for updates:", err);
+      // Fallback: open the repo page if everything fails
+      await open('https://github.com/abdulrasol/sweep');
+    } finally {
       setChecking(false);
       setLastCheck(new Date().toLocaleString());
-    }, 2000);
+    }
   };
 
   return (
