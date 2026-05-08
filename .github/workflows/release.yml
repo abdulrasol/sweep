@@ -2,8 +2,10 @@ name: "Release"
 
 on:
   push:
+    branches:
+      - main
     tags:
-      - 'v*' # Push events to matching v*, i.e. v1.0.4
+      - 'v*'
 
 jobs:
   publish-tauri:
@@ -52,7 +54,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: app-v__VERSION__ # the action automatically replaces __VERSION__ with the app version
+          tagName: v__VERSION__ # the action automatically replaces __VERSION__ with the app version
           releaseName: "Sweep v__VERSION__"
           releaseBody: "See the assets to download this version and install."
           releaseDraft: true
