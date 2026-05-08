@@ -1,8 +1,31 @@
+# Dependency directories
 node_modules/
-build/
 dist/
-coverage/
+target/
+src-tauri/target/
+
+# OS metadata
 .DS_Store
+Thumbs.db
+
+# Environment and Logs
 *.log
-.env*
-!.env.example
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.pnpm-debug.log*
+
+# Tauri
+src-tauri/gen/
+src-tauri/remote/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific
+!/.env.example

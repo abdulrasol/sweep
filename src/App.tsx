@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import ScanView from './views/ScanView';
@@ -6,154 +6,213 @@ import ReviewView from './views/ReviewView';
 import ExecutionView from './views/ExecutionView';
 import SettingsView from './views/SettingsView';
 import AboutView from './views/AboutView';
-import { AnimatePresence, motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Activity, Zap, ShieldCheck } from 'lucide-react';
+import { invoke } from './lib/tauriSimulation';
 
-type View = 'scan' | 'review' | 'cleanup' | 'analytics' | 'settings' | 'about';
+interface SystemInfo {
+  os_name: string;
+  os_version: string;
+  cpu_usage: number;
+  ram_total: number;
+  ram_used: number;
+  disk_total: number;
+  disk_free: number;
+}
+
+type View = 'scan' | 'review' | 'execution' | 'settings' | 'about' | 'cleanup';
 
 export default function App() {
   const [activeView, setActiveView] = useState<View>('scan');
   const [isCleaning, setIsCleaning] = useState(false);
-  const [accent, setAccent] = useState('emerald');
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null);
 
-  const accentColors: Record<string, string> = {
-    emerald: '#10b981',
-    blue: '#3b82f6',
-    purple: '#a855f7',
-    rose: '#f43f5e',
-    amber: '#f59e0b',
+  const fetchSysInfo = async () => {
+    try {
+      const info = await invoke<SystemInfo>('get_system_info');
+      setSysInfo(info);
+    } catch (err) {
+      console.error("Failed to fetch system info:", err);
+    }
   };
 
   useEffect(() => {
-    const root = document.documentElement;
-    const primaryColor = accentColors[accent];
+    fetchSysInfo();
+    const interval = setInterval(fetchSysInfo, 3000);
+    return () => clearInterval(interval);
+  }, []);
+  
+  const [scanPath, setScanPath] = useState(() => localStorage.getItem('sweep_path') || '');
+  const [selectedModules, setSelectedModules] = useState<string[]>(() => {
+    const saved = localStorage.getItem('sweep_modules');
+    return saved ? JSON.parse(saved) : ['flutter', 'node', 'rust', 'xcode'];
+  });
+  const [ignoredPaths, setIgnoredPaths] = useState<string[]>(() => {
+    const saved = localStorage.getItem('sweep_ignored');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [selectedItems, setSelectedItems] = useState<CleanupItem[]>([]);
+  const [accent, setAccent] = useState(() => localStorage.getItem('sweep_accent') || 'emerald');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('sweep_theme') as any) || 'dark');
+  
+  const [verboseLogging, setVerboseLogging] = useState(() => localStorage.getItem('sweep_verbose') === 'true');
+  const [autoPurge, setAutoPurge] = useState(() => localStorage.getItem('sweep_auto_purge') === 'true');
+
+  useEffect(() => {
+    localStorage.setItem('sweep_path', scanPath);
+    localStorage.setItem('sweep_modules', JSON.stringify(selectedModules));
+    localStorage.setItem('sweep_ignored', JSON.stringify(ignoredPaths));
+    localStorage.setItem('sweep_accent', accent);
+    localStorage.setItem('sweep_theme', theme);
+    localStorage.setItem('sweep_verbose', String(verboseLogging));
+    localStorage.setItem('sweep_auto_purge', String(autoPurge));
+  }, [scanPath, selectedModules, ignoredPaths, accent, theme, verboseLogging, autoPurge]);
+
+  useEffect(() => {
+    document.documentElement.className = theme;
+    const colors: Record<string, string> = {
+      emerald: '#10b981',
+      blue: '#3b82f6',
+      violet: '#8b5cf6',
+      rose: '#f43f5e',
+      amber: '#f59e0b'
+    };
+    document.documentElement.style.setProperty('--color-primary', colors[accent]);
     
-    // Update CSS variables
-    root.style.setProperty('--color-primary', primaryColor);
-    
-    if (theme === 'light') {
-      root.style.setProperty('--color-surface', '#ffffff');
-      root.style.setProperty('--color-surface-dim', '#f8fafc');
-      root.style.setProperty('--color-surface-bright', '#f1f5f9');
-      root.style.setProperty('--color-surface-container', '#f1f5f9');
-      root.style.setProperty('--color-on-surface', '#0f172a');
-      root.style.setProperty('--color-outline', '#e2e8f0');
-      root.style.setProperty('--color-outline-variant', '#cbd5e1');
-    } else {
-      root.style.setProperty('--color-surface', '#0a0a0a');
-      root.style.setProperty('--color-surface-dim', '#0a0a0a');
-      root.style.setProperty('--color-surface-bright', '#151515');
-      root.style.setProperty('--color-surface-container', '#0f0f0f');
-      root.style.setProperty('--color-on-surface', '#f4f4f5');
-      root.style.setProperty('--color-outline', '#27272a');
-      root.style.setProperty('--color-outline-variant', '#3f3f46');
-    }
+    const rgb = accent === 'emerald' ? '16, 185, 129' : 
+                accent === 'blue' ? '59, 130, 246' :
+                accent === 'violet' ? '139, 92, 246' :
+                accent === 'rose' ? '244, 63, 94' : '245, 158, 11';
+    document.documentElement.style.setProperty('--color-primary-rgb', rgb);
   }, [accent, theme]);
 
-  const handleInitiateScan = (path: string) => {
-    console.log(`Scanning path: ${path}`);
+  const handleInitiateScan = (path: string, modules: string[]) => {
+    setScanPath(path);
+    setSelectedModules(modules);
     setActiveView('review');
   };
 
-  const handleStartCleaning = (items: any[]) => {
-    console.log(`Starting cleanup for ${items.length} items`);
-    setIsCleaning(true);
-    setActiveView('cleanup');
+  const handleIgnorePath = (path: string) => {
+    setIgnoredPaths(prev => [...new Set([...prev, path])]);
   };
 
-  const handleAbort = () => {
-    setIsCleaning(false);
-    setActiveView('scan');
-  };
+  const renderViewContent = () => {
+    if (isCleaning) {
+      return (
+        <ExecutionView 
+          items={selectedItems} 
+          verbose={verboseLogging}
+          onComplete={() => {
+            setIsCleaning(false);
+            setActiveView('scan');
+          }} 
+        />
+      );
+    }
 
-  const renderView = () => {
     switch (activeView) {
       case 'scan':
-        return <ScanView onInitiate={handleInitiateScan} />;
+        return (
+          <ScanView 
+            initialPath={scanPath}
+            initialModules={selectedModules}
+            onInitiate={handleInitiateScan} 
+          />
+        );
       case 'review':
-        return <ReviewView onStartCleaning={handleStartCleaning} />;
+        return (
+          <ReviewView 
+            scanPath={scanPath}
+            selectedModules={selectedModules}
+            ignoredPaths={ignoredPaths}
+            autoPurge={autoPurge}
+            sysInfo={sysInfo}
+            onIgnore={handleIgnorePath}
+            onStartCleaning={(items: CleanupItem[]) => {
+              setSelectedItems(items);
+              setIsCleaning(true);
+            }} 
+          />
+        );
       case 'cleanup':
-        return <ExecutionView onAbort={handleAbort} />;
+        return (
+          <div className="h-full flex flex-col items-center justify-center space-y-6 text-center px-6">
+            <div className="w-20 h-20 rounded-3xl bg-primary/10 border border-primary/20 flex items-center justify-center shadow-inner">
+               <Activity className="w-10 h-10 text-primary animate-pulse" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-xl font-bold tracking-tight text-on-surface">Purge Engine: Standing By</h2>
+              <p className="text-xs text-on-surface/40 max-w-sm leading-relaxed">
+                The high-performance cleanup sequence is armed and ready. Initiate a scan in <span className="text-primary font-bold">Target Scope</span> to identify artifacts for removal.
+              </p>
+            </div>
+            <button 
+              onClick={() => setActiveView('scan')}
+              className="flex items-center gap-3 px-8 py-3 bg-on-surface text-surface rounded-xl font-bold text-[10px] uppercase tracking-[0.2em] hover:brightness-90 transition-all active:scale-95"
+            >
+              <Zap className="w-3.5 h-3.5 fill-current" />
+              Go to Target Scope
+            </button>
+            <div className="pt-8 flex items-center gap-6 opacity-20">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4" />
+                <span className="text-[10px] font-mono uppercase">Root Authorized</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                <span className="text-[10px] font-mono uppercase">Engine Warm</span>
+              </div>
+            </div>
+          </div>
+        );
       case 'settings':
         return (
           <SettingsView 
-            accent={accent} 
-            onAccentChange={setAccent} 
-            theme={theme} 
-            onThemeChange={setTheme} 
+            accent={accent}
+            onAccentChange={setAccent}
+            theme={theme}
+            onThemeChange={setTheme}
+            verbose={verboseLogging}
+            onVerboseChange={setVerboseLogging}
+            autoPurge={autoPurge}
+            onAutoPurgeChange={setAutoPurge}
           />
         );
       case 'about':
         return <AboutView />;
       default:
-        return (
-          <div className="flex flex-col items-center justify-center h-full text-on-surface/20">
-            <motion.div
-              initial={{ rotate: 0 }}
-              animate={{ rotate: 360 }}
-              transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-            >
-              <div className="w-64 h-64 border-2 border-dashed border-current rounded-full" />
-            </motion.div>
-            <p className="mt-8 font-mono text-xs uppercase tracking-[0.4em]">Module coming soon</p>
-          </div>
-        );
-    }
-  };
-
-  const getHeaderTitle = () => {
-    switch (activeView) {
-      case 'scan': return 'System Scan';
-      case 'review': return 'Review Targets';
-      case 'cleanup': return 'Purge Sequence';
-      case 'settings': return 'System Settings';
-      case 'about': return 'About Sweep';
-      default: return 'Sweep';
+        return <ScanView initialPath={scanPath} initialModules={selectedModules} onInitiate={handleInitiateScan} />;
     }
   };
 
   return (
-    <div className="flex h-screen w-full bg-surface-dim selection:bg-primary/20 overflow-hidden font-sans">
-      <Sidebar activeView={activeView} onViewChange={(v) => setActiveView(v as View)} />
-      
-      <main className="flex-1 flex flex-col relative overflow-hidden bg-surface">
-        <Header title={getHeaderTitle()} />
-        
-        <div className="flex-1 overflow-y-auto scroll-smooth custom-scrollbar">
+    <div className="flex h-screen bg-surface text-on-surface selection:bg-primary/20 overflow-hidden font-sans">
+      <Sidebar activeView={activeView} onViewChange={(v) => setActiveView(v as View)} sysInfo={sysInfo} />
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        <Header 
+          accent={accent} 
+          setAccent={setAccent} 
+          theme={theme} 
+          setTheme={setTheme}
+          ignoredCount={ignoredPaths.length}
+          onClearIgnores={() => setIgnoredPaths([])}
+        />
+        <main className="flex-1 overflow-hidden bg-surface-dim/30 relative">
           <AnimatePresence mode="wait">
-            <motion.div
-              key={activeView}
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 1.02 }}
-              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-              className="h-full"
+            <motion.div 
+              key={activeView + (isCleaning ? '-clean' : '')}
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.2 }}
+              className="h-full overflow-y-auto"
             >
-              {renderView()}
+              {renderViewContent()}
             </motion.div>
           </AnimatePresence>
-        </div>
-
-        {/* Bottom Rail */}
-        <footer className="h-8 bg-surface-container border-t border-outline flex items-center px-4 justify-between shrink-0 z-10">
-          <div className="flex items-center gap-4 text-[10px] font-mono text-on-surface/40 uppercase tracking-widest">
-            <span className="flex items-center gap-2">
-              <span className="w-2 h-2 bg-secondary rounded-sm shadow-[0_0_5px_rgba(59,130,246,0.3)]"></span> 
-              Main Thread
-            </span>
-            <div className="w-px h-3 bg-outline"></div>
-            <span>0 Errors</span>
-            <span>0 Warnings</span>
-          </div>
-          <div className="text-[9px] font-mono text-on-surface/30 uppercase tracking-[0.2em]">
-            UTF-8 | LF | Rust Stable v1.75
-          </div>
-        </footer>
-
-        {/* Ambient background effects */}
-        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/[0.03] rounded-full blur-[120px] pointer-events-none -z-10 animate-pulse" />
-        <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-secondary/[0.02] rounded-full blur-[100px] pointer-events-none -z-10" />
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

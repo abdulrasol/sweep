@@ -1,0 +1,31 @@
+# MIT License
+
+Copyright (c) 2026 Abdulrasol Al-Hilo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Special Acknowledgement & Credits
+
+This software was developed using **Vide Coding** techniques in collaboration with **Google Gemini 3.5 Flash with Antigravity Agent**
+
+The project's architecture, logic, and user interface were co-authored by an Agentic AI system. This project serves as a demonstration of high-performance development powered by advanced LLMs, specifically **Gemini 1.5 Flash** during high-demand periods.
+
+Sweep was born from a real-world developer frustration: the "1GB Disk Space" incident. It is a tribute to human-AI synergy.
