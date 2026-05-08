@@ -259,15 +259,51 @@ pub fn scan_directory(base_path: &str, enabled_modules: Vec<String>, ignored_pat
 
     items.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
     items.dedup_by(|a, b| a.id == b.id);
-    items
+    
+    // Filter out redundant nested paths (e.g., if we are deleting node_modules, 
+    // don't try to delete node_modules/nested_package/dist later).
+    let mut final_items = Vec::new();
+    for item in items {
+        let is_nested = final_items.iter().any(|existing: &CleanupItem| {
+            let item_path = Path::new(&item.path);
+            let existing_path = Path::new(&existing.path);
+            item_path.starts_with(existing_path)
+        });
+        
+        if !is_nested {
+            final_items.push(item);
+        }
+    }
+    
+    final_items
 }
 
 pub fn delete_item(path_str: &str) -> Result<(), String> {
     let path = Path::new(path_str);
+    
+    // If the path doesn't exist, it's already "deleted" - return success
+    if !path.exists() {
+        return Ok(());
+    }
+
     if path.is_dir() {
-        fs::remove_dir_all(path).map_err(|e| format!("Failed to delete dir: {}", e))
+        fs::remove_dir_all(path).or_else(|e| {
+            let err_msg = format!("{}", e);
+            if err_msg.contains("No such file") {
+                Ok(()) // Race condition: deleted between check and action
+            } else {
+                Err(format!("Failed to delete directory: {}. {}", path_str, e))
+            }
+        })
     } else {
-        fs::remove_file(path).map_err(|e| format!("Failed to delete file: {}", e))
+        fs::remove_file(path).or_else(|e| {
+            let err_msg = format!("{}", e);
+            if err_msg.contains("No such file") {
+                Ok(())
+            } else {
+                Err(format!("Failed to delete file: {}. {}", path_str, e))
+            }
+        })
     }
 }
 
