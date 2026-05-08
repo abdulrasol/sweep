@@ -1,6 +1,6 @@
 [package]
 name = "sweep"
-version = "0.0.1-alpha"
+version = "0.0.1"
 description = "Sweep - Refined Technical Utility"
 authors = ["you <you@example.com>"]
 edition = "2021"
