@@ -1,0 +1,13 @@
+{
+  "identifier": "main-capability",
+  "description": "Main capability for Sweep",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:default",
+    "dialog:default",
+    "fs:default",
+    "updater:default",
+    "process:allow-restart"
+  ]
+}
