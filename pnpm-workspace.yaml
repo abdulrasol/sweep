@@ -1,4 +1,7 @@
-allowBuilds:
-  '@google/genai': false
-  esbuild: false
-  protobufjs: false
+packages:
+  - '.'
+
+# allowBuilds:
+#   '@google/genai': false
+#   esbuild: false
+#   protobufjs: false
