@@ -1,0 +1,6 @@
+{
+  "name": "DevClean",
+  "description": "A modern technical utility for scanning and cleaning development artifacts to reclaim disk space.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
