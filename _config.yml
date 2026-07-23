@@ -1,0 +1,6 @@
+title: "Sweep mac cleaner"
+description: "A High-Performance Technical Utility for Modern Developers"
+theme: jekyll-theme-cayman # يمكنك تغيير هذا القالب (مثل: minima أو architect)
+
+# هذا السطر يخبر Jekyll أن يجعل ملف README.md هو الصفحة الرئيسية للموقع
+readme: README.md
