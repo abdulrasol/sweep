@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <!-- SEO Meta Tags -->
+  <title>Sweep | High-Performance Developer Disk Cleaner & Optimizer</title>
+  <meta name="description" content="Sweep is an open-source, high-performance developer tool built with Rust & Tauri to clean up compiler caches, node_modules, and DerivedData to reclaim disk space." />
+  <meta name="keywords" content="Sweep, developer utility, disk cleaner, node_modules, Xcode DerivedData, Tauri, Rust, macOS, Windows, Linux, storage optimizer, Subul Technology" />
+  <meta name="author" content="Subul Technology" />
+  
+  <!-- OpenGraph Card (Facebook/LinkedIn) -->
+  <meta property="og:title" content="Sweep | Reclaim your developer workspace, one artifact at a time" />
+  <meta property="og:description" content="An open-source, high-performance system cleaning utility built with Rust and Tauri to prune massive compiler builds, package caches, and emulator logs." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://sweep.subultech.top" />
+  <meta property="og:image" content="https://sweep.subultech.top/sweep.png" />
+  
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Sweep | High-Performance Developer Disk Cleaner" />
+  <meta name="twitter:description" content="Safely delete node_modules, DerivedData, Cargo targets, and Docker logs in seconds." />
+  <meta name="twitter:image" content="https://sweep.subultech.top/sweep.png" />
+
+  <!-- Canonical link -->
+  <link rel="canonical" href="https://sweep.subultech.top" />
+  
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- Header / Navigation -->
+  <header>
+    <div class="container nav-container">
+      <div class="logo-wrapper">
+        <img src="sweep.png" alt="Sweep Logo" class="logo-icon" style="border-radius: 10px;" />
+        <span class="logo-text">SWEEP</span>
+      </div>
+      
+      <ul class="nav-links">
+        <li><a href="#about">Our Story</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#demo">Live Demo</a></li>
+        <li><a href="#contributors">Testing & Contribs</a></li>
+        <li><a href="#faq">FAQ</a></li>
+      </ul>
+
+      <div>
+        <a href="https://github.com/abdulrasol/sweep" target="_blank" rel="noopener" class="btn-github-nav">
+          <!-- Github Icon SVG -->
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          </svg>
+          <span>GitHub</span>
+        </a>
+      </div>
+
+      <div class="menu-toggle">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero Section -->
+    <section class="hero">
+      <div class="container">
+        <div class="badge">
+          <span class="badge-pulse"></span>
+          <span>Help needed testing on Windows and Linux!</span>
+        </div>
+        
+        <h1 class="hero-title">
+          <span class="grad-1">Reclaim Your</span><br />
+          <span class="grad-2">Developer Workspace</span>
+        </h1>
+        
+        <p class="hero-subtitle">
+          Sweep is an open-source, high-performance technical utility that hunts down massive build caches, abandoned node_modules, and hidden system logs in seconds.
+        </p>
+        
+        <div class="cta-group" id="download">
+          <a href="https://github.com/abdulrasol/sweep/releases" target="_blank" rel="noopener" class="btn btn-primary">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+            </svg>
+            Download for macOS
+            <span class="env-badge stable">Stable</span>
+          </a>
+          
+          <a href="#contributors" class="btn btn-secondary">
+            Get Windows / Linux Alpha
+            <span class="env-badge beta">Help Test</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Preview / Interactive Mockup Section -->
+    <section id="demo" style="background: rgba(12, 12, 20, 0.4); border-top: 1px solid var(--surface-border); border-bottom: 1px solid var(--surface-border);">
+      <div class="container">
+        <div class="section-header">
+          <h2>Interactive Live Preview</h2>
+          <p>Experience how Sweep scans your code environment, aggregates bloated paths, and safely purges them.</p>
+        </div>
+        
+        <div class="preview-container">
+          <div class="mockup-window">
+            <!-- Window header bar -->
+            <div class="mockup-header">
+              <div class="mockup-dots">
+                <span class="dot-red"></span>
+                <span class="dot-yellow"></span>
+                <span class="dot-green"></span>
+              </div>
+              <div class="mockup-title">Sweep Dashboard v0.0.1 (React + Rust Tauri)</div>
+              <div style="width: 50px;"></div> <!-- Spacer -->
+            </div>
+            
+            <!-- Window Body -->
+            <div class="mockup-body">
+              <!-- Sidebar representing global state -->
+              <aside class="mock-sidebar">
+                <ul class="mock-sidebar-menu">
+                  <li class="mock-menu-item active">📊 Scan Dashboard</li>
+                  <li class="mock-menu-item">⚙️ Settings</li>
+                  <li class="mock-menu-item">ℹ️ About Sweep</li>
+                </ul>
+                
+                <div class="mock-sys-stats">
+                  <h4 class="mock-sys-title">System Metrics</h4>
+                  
+                  <div class="mock-stat-item">
+                    <div class="mock-stat-labels">
+                      <span>CPU Utilization</span>
+                      <span id="cpu-text">24%</span>
+                    </div>
+                    <div class="mock-stat-bar">
+                      <div id="cpu-progress" class="mock-stat-progress progress-cpu" style="width: 24%;"></div>
+                    </div>
+                  </div>
+                  
+                  <div class="mock-stat-item">
+                    <div class="mock-stat-labels">
+                      <span>RAM Pressure</span>
+                      <span id="ram-text">48%</span>
+                    </div>
+                    <div class="mock-stat-bar">
+                      <div id="ram-progress" class="mock-stat-progress progress-ram" style="width: 48%;"></div>
+                    </div>
+                  </div>
+                  
+                  <div class="mock-stat-item">
+                    <div class="mock-stat-labels">
+                      <span>Available Disk</span>
+                      <span id="disk-text">4.2 GB Free</span>
+                    </div>
+                    <div class="mock-stat-bar">
+                      <div id="disk-progress" class="mock-stat-progress progress-disk" style="width: 95.8%;"></div>
+                    </div>
+                  </div>
+                </div>
+              </aside>
+              
+              <!-- Content View area -->
+              <div class="mock-content">
+                <div class="mock-header-sec">
+                  <div class="mock-header-text">
+                    <h3>Project Workspace Scan</h3>
+                    <p id="mock-desc-text">Select custom directory path to begin scan.</p>
+                  </div>
+                  <button id="mock-scan-btn" class="mock-scan-btn">Global Scan</button>
+                </div>
+                
+                <!-- Target List -->
+                <div id="mock-target-list" class="mock-target-list">
+                  <div class="mock-target-card">
+                    <div class="mock-target-info">
+                      <div class="mock-target-icon mobile">📱</div>
+                      <div class="mock-target-details">
+                        <h4>Mobile Environment Caches</h4>
+                        <p>Xcode DerivedData, Flutter cached builds, Android Gradle caches</p>
+                      </div>
+                    </div>
+                    <div class="mock-target-action">
+                      <span class="mock-target-size">Pending</span>
+                    </div>
+                  </div>
+                  
+                  <div class="mock-target-card">
+                    <div class="mock-target-info">
+                      <div class="mock-target-icon web">🌐</div>
+                      <div class="mock-target-details">
+                        <h4>Web Project Dependencies</h4>
+                        <p>node_modules folders, PNPM cached packages, Next.js caches</p>
+                      </div>
+                    </div>
+                    <div class="mock-target-action">
+                      <span class="mock-target-size">Pending</span>
+                    </div>
+                  </div>
+
+                  <div class="mock-target-card">
+                    <div class="mock-target-info">
+                      <div class="mock-target-icon systems">⚙️</div>
+                      <div class="mock-target-details">
+                        <h4>System & Compiler Artifacts</h4>
+                        <p>Rust Cargo targets, Python Conda, .NET caches, Docker layers</p>
+                      </div>
+                    </div>
+                    <div class="mock-target-action">
+                      <span class="mock-target-size">Pending</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Scan Overlay -->
+                <div id="mock-overlay" class="mock-overlay">
+                  <div class="mock-spinner"></div>
+                  <div>
+                    <h4 id="mock-status-text" style="font-weight: 700;">Scanning directories...</h4>
+                    <p class="mock-scan-progress-text">rustc & node scan in progress</p>
+                  </div>
+                </div>
+                
+              </div>
+            </div>
+            
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Project Story Section -->
+    <section id="about" class="container">
+      <div class="section-header">
+        <h2>Why Sweep?</h2>
+        <p>A true story that every developer experiences eventually.</p>
+      </div>
+      
+      <div class="glass-panel" style="padding: 3rem; margin-bottom: 2rem;">
+        <div style="font-size: 1.15rem; line-height: 1.8;">
+          <p style="margin-bottom: 1.5rem;">
+            It started during a routine mobile development sprint. A build failed abruptly with a "Not enough space" error. While the target iPhone had plenty of storage, a check on the host development machine revealed a shocking truth: <strong>only 1 GB of free disk space remained.</strong>
+          </p>
+          <p style="margin-bottom: 1.5rem;">
+            Over years of programming, hidden files like Xcode's <code>DerivedData</code>, deep Android emulator logs, and hundreds of nested <code>node_modules</code> folders had quietly suffocated the machine. Finding and purging these manual system directories was painful and error-prone.
+          </p>
+          <p style="margin-bottom: 1.5rem;">
+            That's why <strong>Sweep</strong> was born. Built as a collaborative pair-programming project with <strong>Google Gemini (Antigravity)</strong>, it is a high-performance command center to detect, review, and wipe out these silent space eaters instantly, giving your workstation room to breathe.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="container">
+      <div class="section-header">
+        <h2>Features Designed for Developers</h2>
+        <p>Sweep knows exactly where storage hogs hide and allows you to reclaim them safely.</p>
+      </div>
+      
+      <div class="features-grid">
+        <!-- Feature 1 -->
+        <div class="glass-panel feature-card">
+          <div class="feature-icon-box">📱</div>
+          <h3 class="feature-title">Mobile Caches</h3>
+          <p class="feature-desc">Deep-clean Xcode DerivedData build archives, Android Studio emulators/AVD, and Flutter build layers taking up gigabytes of space.</p>
+        </div>
+        
+        <!-- Feature 2 -->
+        <div class="glass-panel feature-card">
+          <div class="feature-icon-box">🌐</div>
+          <h3 class="feature-title">Web Bloat Cleaner</h3>
+          <p class="feature-desc">Quickly find orphaned <code>node_modules</code> in old projects, wipe PNPM store caches, and clear Next.js production build artifacts.</p>
+        </div>
+        
+        <!-- Feature 3 -->
+        <div class="glass-panel feature-card">
+          <div class="feature-icon-box">⚙️</div>
+          <h3 class="feature-title">Systems & Compilers</h3>
+          <p class="feature-desc">Prune bloated Rust Cargo <code>target</code> folders, clear Python Conda environment caches, and purge unused Docker image layers.</p>
+        </div>
+        
+        <!-- Feature 4 -->
+        <div class="glass-panel feature-card">
+          <div class="feature-icon-box">🛡️</div>
+          <h3 class="feature-title">Review Before Purging</h3>
+          <p class="feature-desc">Safety is paramount. Sweep gives you a checklist of every discovered folder so you can review their sizes before confirming deletion.</p>
+        </div>
+        
+        <!-- Feature 5 -->
+        <div class="glass-panel feature-card">
+          <div class="feature-icon-box">⚡</div>
+          <h3 class="feature-title">Built with Rust</h3>
+          <p class="feature-desc">The Tauri v2 backend runs file system crawlers natively in Rust, achieving rapid disk scanning in seconds with near-zero memory footprint.</p>
+        </div>
+        
+        <!-- Feature 6 -->
+        <div class="glass-panel feature-card">
+          <div class="feature-icon-box">🔮</div>
+          <h3 class="feature-title">Glassmorphism UI</h3>
+          <p class="feature-desc">A premium, dark-mode terminal-inspired layout that fits your developer environment, featuring live metrics of CPU, RAM, and storage.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Contributors & Beta Testers section -->
+    <section id="contributors" style="background: rgba(12, 12, 20, 0.4); border-top: 1px solid var(--surface-border); border-bottom: 1px solid var(--surface-border);">
+      <div class="container">
+        <div class="glass-panel cta-box">
+          <h3>Calling Testers & Contributors 📢</h3>
+          <p>
+            Sweep has been fully built and verified on <strong>macOS</strong>, and it is working stably. We are now expanding our testing to support other environments.
+          </p>
+          
+          <div style="font-size: 1.05rem; margin-bottom: 2rem; color: #a5b4fc; font-weight: 600;">
+            If you are running Windows or Linux, we want you to run Sweep, help us test it, build from source, or report issues!
+          </div>
+          
+          <div class="tester-grid">
+            <div class="tester-platform-card">
+              <div class="platform-icon">🍏</div>
+              <div class="platform-title">macOS</div>
+              <span class="env-badge stable">Stable & Tested</span>
+            </div>
+            
+            <div class="tester-platform-card">
+              <div class="platform-icon">🪟</div>
+              <div class="platform-title">Windows</div>
+              <span class="env-badge beta">Help Us Test</span>
+            </div>
+            
+            <div class="tester-platform-card">
+              <div class="platform-icon">🐧</div>
+              <div class="platform-title">Linux</div>
+              <span class="env-badge beta">Contributors Wanted</span>
+            </div>
+          </div>
+          
+          <div style="margin-top: 3rem;">
+            <p style="margin-bottom: 1.5rem; color: var(--text-muted);">
+              Interested in contributing to the codebase (Rust or React/TS)? Or want to submit feedback?
+            </p>
+            <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+              <a href="https://github.com/abdulrasol/sweep" target="_blank" rel="noopener" class="btn btn-secondary">
+                GitHub Repository
+              </a>
+              <a href="mailto:info@subultech.top?subject=Sweep%20Feedback%20and%20Testing" class="btn btn-primary">
+                Contact & Submit Feedback
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section id="faq" class="container">
+      <div class="section-header">
+        <h2>Frequently Asked Questions</h2>
+        <p>Everything you need to know about Sweep, security, and project status.</p>
+      </div>
+      
+      <div class="faq-list">
+        <div class="faq-item">
+          <div class="faq-question">
+            <span>Is Sweep safe to use? Will it delete important source files?</span>
+            <svg class="faq-toggle-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path></svg>
+          </div>
+          <div class="faq-answer">
+            Sweep is highly safe. It never deletes files automatically. It performs a read-only crawl across your paths and displays all identified target directories. You can review them, select or deselect specific items, and confirm only the paths you wish to delete.
+          </div>
+        </div>
+        
+        <div class="faq-item">
+          <div class="faq-question">
+            <span>Why should I use Sweep instead of a custom terminal cleanup script?</span>
+            <svg class="faq-toggle-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path></svg>
+          </div>
+          <div class="faq-answer">
+            Terminal scripts lack selective visual confirmation and can be dangerous if a wildcard is misapplied. Sweep features a gorgeous glassmorphic GUI that displays visual metrics, lets you scan nested workspaces recursively, and shows immediate disk savings before executing any operations.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">
+            <span>How do I install and run Sweep on Windows or Linux?</span>
+            <svg class="faq-toggle-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path></svg>
+          </div>
+          <div class="faq-answer">
+            You can compile Sweep yourself by cloning the repository and running `pnpm install` followed by `cargo tauri dev`. We are actively compiling pre-packaged binaries for Windows (.msi) and Linux (.deb), and we welcome developer testing on these packages.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">
+            <span>How was Sweep developed?</span>
+            <svg class="faq-toggle-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path></svg>
+          </div>
+          <div class="faq-answer">
+            Sweep was pair-programmed between a human developer and Google Gemini (Antigravity) by DeepMind, leveraging AI to quickly build high-performance Rust integrations and modern UI components.
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-content">
+        <div class="footer-brand">
+          <div class="logo-wrapper" style="margin-bottom: 1rem;">
+            <img src="sweep.png" alt="Sweep Logo" class="logo-icon" style="width: 2rem; height: 2rem; border-radius: 6px;" />
+            <span class="logo-text" style="font-size: 1.25rem;">SWEEP</span>
+          </div>
+          <p>
+            An open-source developer utility built to keep workspaces clean and optimize storage.
+          </p>
+        </div>
+        
+        <div>
+          <h4 class="footer-title">Links</h4>
+          <ul class="footer-links">
+            <li><a href="#about">Story</a></li>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#download">Download</a></li>
+            <li><a href="https://github.com/abdulrasol/sweep" target="_blank" rel="noopener">GitHub Repo</a></li>
+          </ul>
+        </div>
+        
+        <div>
+          <h4 class="footer-title">Contact & Support</h4>
+          <ul class="footer-links">
+            <li>Contact Email:</li>
+            <li style="font-family: var(--font-mono); color: var(--text-main); font-weight: 500;">
+              <a href="mailto:info@subultech.top">info@subultech.top</a>
+            </li>
+            <li>Developer:</li>
+            <li style="color: var(--text-main); font-weight: 500;">Subul Technology</li>
+          </ul>
+        </div>
+      </div>
+      
+      <div class="footer-bottom">
+        <p>Copyright &copy; 2026. Built by Subul Technology in pair-programming with Google Gemini.</p>
+        <p style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-dark);">
+          Hosted on GitHub Pages @ <a href="https://sweep.subultech.top" style="color: var(--accent);">sweep.subultech.top</a>
+        </p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="app.js"></script>
+</body>
+</html>
