@@ -1,8 +1,8 @@
 [package]
 name = "sweep"
-version = "0.0.1"
+version = "0.0.9"
 description = "Sweep - Refined Technical Utility"
-authors = ["you <you@example.com>"]
+authors = ["AbdulRasol S. Al-Hilo"]
 edition = "2021"
 build = "build.rs"
 
@@ -15,9 +15,7 @@ tauri-build = { version = "2.0.0-rc", features = [] }
 
 [dependencies]
 tauri = { version = "2.0.0-rc", features = [] }
-tauri-plugin-shell = "2.0.0-rc"
 tauri-plugin-dialog = "2.0.0-rc"
-tauri-plugin-fs = "2.0.0-rc"
 tauri-plugin-updater = "2.0.0-rc"
 tauri-plugin-process = "2.0.0-rc"
 serde = { version = "1.0", features = ["derive"] }
@@ -25,6 +23,12 @@ serde_json = "1.0"
 walkdir = "2.5"
 dirs = "5.0"
 sysinfo = "0.30"
+git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
+glob = "0.3"
+rayon = "1.10"
+
+[dev-dependencies]
+tempfile = "3"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
