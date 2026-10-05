@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Folder, Edit, ChevronRight, Apple, HardDrive, Monitor, Coffee, Zap } from 'lucide-react';
+import { Folder, Edit, ChevronRight, Apple, HardDrive, Monitor, Coffee, Zap, Bot } from 'lucide-react';
 import { 
   SiFlutter, 
   SiNodedotjs, 
@@ -39,6 +39,7 @@ export default function ScanView({ initialPath, initialModules, onInitiate }: Sc
     { id: 'flutter', title: 'Flutter / Dart', icon: SiFlutter, description: 'Build artifacts, .dart_tool, and iOS/macOS Pods.', path: 'pubspec.yaml', color: 'text-[#02569B]' },
     { id: 'node', title: 'Node / PNPM', icon: SiNodedotjs, description: 'node_modules, .next, and PNPM global stores.', path: 'package.json', color: 'text-[#339933]' },
     { id: 'rust', title: 'Rust / Cargo', icon: SiRust, description: 'Removes heavy target directories and builds.', path: 'Cargo.toml', color: 'text-orange-500' },
+    { id: 'ai_assistants', title: 'AI Assistants', icon: Bot, description: 'Claude, ChatGPT, Codex, Cursor, Antigravity, Gemini, Copilot, Cline and more. Caches are Safe; chat history is Danger.', path: 'AI tools', color: 'text-[#D97757]', badge: 'Review' },
     { id: 'ai', title: 'AI / ML Models', icon: SiHuggingface, description: 'Gigabyte-heavy Hugging Face & Torch models.', path: 'Model Cache', color: 'text-[#FFD21E]' },
     { id: 'xcode', title: 'Xcode', icon: SiXcode, description: 'DerivedData build caches from Xcode and Flutter iOS builds.', path: 'DerivedData', color: 'text-[#147EFB]' },
     { id: 'android', title: 'Android / Kotlin', icon: SiKotlin, description: 'Gradle build folders and AVD emulator images.', path: 'AVD / Gradle', color: 'text-[#7F52FF]' },

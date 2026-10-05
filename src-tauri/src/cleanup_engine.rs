@@ -16,6 +16,8 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+mod ai_rules;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -223,6 +225,23 @@ static PROJECT_RULES: &[ProjectRule] = &[
         ],
         blocked_if_running: &["Unity"],
     },
+    ProjectRule {
+        module: "ai_assistants",
+        name: "Aider",
+        markers: &[
+            ".aider.chat.history.md",
+            ".aider.input.history",
+            ".aider.tags.cache.v3",
+            ".aider.tags.cache.v4",
+        ],
+        label: "Aider Files",
+        targets: &[
+            t(".aider.tags.cache.v*", Safe),
+            t(".aider.input.history", Review),
+            t(".aider.chat.history.md", Danger),
+        ],
+        blocked_if_running: &["aider"],
+    },
     // Go builds nothing inside the project tree; its caches are global (PLAN 2.10).
     // Python and AI project rules were removed: `envs/`, `pkgs/`, `outputs/`, `runs/` are
     // common names for real source/data directories (PLAN 0.2).
@@ -238,6 +257,10 @@ struct GlobalRule {
     blocked_if_running: &'static [&'static str],
     /// Report each child directory as its own item instead of the folder itself.
     split_children: bool,
+    /// Item description; a default based on `safety` is used when empty.
+    note: &'static str,
+    /// Items smaller than this are not listed.
+    min_bytes: u64,
 }
 
 const fn g(
@@ -256,6 +279,8 @@ const fn g(
         safety,
         blocked_if_running,
         split_children: false,
+        note: "",
+        min_bytes: 1,
     }
 }
 
@@ -381,6 +406,8 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         safety: Review,
         blocked_if_running: &[],
         split_children: true,
+        note: "",
+        min_bytes: MIN_SPLIT_CHILD_BYTES,
     },
 ];
 
@@ -527,6 +554,7 @@ struct Candidate {
     description: String,
     blocked_if_running: Vec<&'static str>,
     project_root: Option<PathBuf>,
+    min_bytes: u64,
 }
 
 pub fn scan_directory(
@@ -558,12 +586,7 @@ pub fn scan_directory(
             if c.project_root.is_some() && c.safety == Review && has_cachedir_tag(&c.path) {
                 c.safety = Safe;
             }
-            let min = if c.category == "System Cache" {
-                MIN_SPLIT_CHILD_BYTES
-            } else {
-                1
-            };
-            if size < min {
+            if size < c.min_bytes {
                 return None;
             }
             let canonical = fs::canonicalize(&c.path).ok()?;
@@ -603,12 +626,13 @@ pub fn scan_directory(
 }
 
 fn collect_global(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) {
-    for rule in GLOBAL_RULES.iter().filter(|r| enabled.contains(r.module)) {
+    let rules = GLOBAL_RULES.iter().chain(ai_rules::ai_rules());
+    for rule in rules.filter(|r| enabled.contains(r.module)) {
         for path in expand(&env.home, rule.home_rel) {
-            if !is_real_dir(&path) {
-                continue;
-            }
             if rule.split_children {
+                if !is_real_dir(&path) {
+                    continue;
+                }
                 let Ok(rd) = fs::read_dir(&path) else {
                     continue;
                 };
@@ -618,27 +642,49 @@ fn collect_global(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) 
                         continue;
                     }
                     let name = entry.file_name().to_string_lossy().into_owned();
+                    let description = if rule.note.is_empty() {
+                        format!(
+                            "Cache folder for {name}. Usually rebuilt by the app, but close the app first and review before removing."
+                        )
+                    } else {
+                        rule.note.to_string()
+                    };
                     out.push(Candidate {
                         path: child,
-                        file_type: name.clone(),
+                        file_type: if rule.note.is_empty() {
+                            name
+                        } else {
+                            rule.label.to_string()
+                        },
                         category: rule.category.to_string(),
                         safety: rule.safety,
-                        description: format!(
-                            "Cache folder for {name}. Usually rebuilt by the app, but close the app first and review before removing."
-                        ),
+                        description,
                         blocked_if_running: rule.blocked_if_running.to_vec(),
                         project_root: None,
+                        min_bytes: rule.min_bytes,
                     });
                 }
             } else {
+                // Folders or single files; never a symlink.
+                let is_plain = fs::symlink_metadata(&path)
+                    .map(|m| !m.file_type().is_symlink())
+                    .unwrap_or(false);
+                if !is_plain {
+                    continue;
+                }
                 out.push(Candidate {
                     path,
-                    file_type: "Global".to_string(),
+                    file_type: rule.label.to_string(),
                     category: rule.category.to_string(),
                     safety: rule.safety,
-                    description: describe_global(rule),
+                    description: if rule.note.is_empty() {
+                        describe_global(rule)
+                    } else {
+                        rule.note.to_string()
+                    },
                     blocked_if_running: rule.blocked_if_running.to_vec(),
                     project_root: None,
+                    min_bytes: rule.min_bytes,
                 });
             }
         }
@@ -711,6 +757,7 @@ fn collect_projects(
                         ),
                         blocked_if_running: rule.blocked_if_running.to_vec(),
                         project_root: Some(dir.to_path_buf()),
+                        min_bytes: 1,
                     });
                 }
             }
@@ -924,6 +971,7 @@ pub fn protected_paths(home: &Path) -> Vec<PathBuf> {
     ] {
         v.push(home.join(rel));
     }
+    v.extend(ai_rules::PROTECTED.iter().map(|rel| home.join(rel)));
     // Compare against canonical forms too (/var -> /private/var on macOS).
     let canon: Vec<PathBuf> = v.iter().filter_map(|p| fs::canonicalize(p).ok()).collect();
     v.extend(canon);
@@ -1310,5 +1358,207 @@ mod tests {
     fn stable_id_is_deterministic() {
         assert_eq!(stable_id("/a/b"), stable_id("/a/b"));
         assert_ne!(stable_id("/a/b"), stable_id("/a/c"));
+    }
+
+    // ----- AI assistants (PLAN 2.16) -----------------------------------------
+
+    fn ai_scan(home_files: &[(&str, usize)]) -> (TempDir, ScanResult) {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        for (rel, size) in home_files {
+            write(&home.join(rel), *size);
+        }
+        let r = scan(d.path(), &["ai_assistants"]);
+        (d, r)
+    }
+
+    fn find<'a>(r: &'a ScanResult, suffix: &str) -> Option<&'a ScannedItem> {
+        r.items.iter().find(|i| i.item.path.ends_with(suffix))
+    }
+
+    const BIG: usize = 2 * 1024 * 1024;
+
+    #[test]
+    fn ai_history_is_danger_and_caches_are_safe() {
+        let (_d, r) = ai_scan(&[
+            (".codex/sessions/2026/10/05/rollout-a.jsonl", BIG),
+            (".codex/log/codex-tui.log", 5000),
+            (".claude/projects/-Users-me-app/s1.jsonl", BIG),
+            (".claude/shell-snapshots/snap.sh", 5000),
+            (".gemini/antigravity/brain/uuid-1/task.md", BIG),
+            ("Library/Application Support/Cursor/Cache/data_0", 5000),
+        ]);
+        assert_eq!(
+            find(&r, ".codex/sessions/2026").unwrap().item.status,
+            Danger
+        );
+        assert_eq!(
+            find(&r, ".claude/projects/-Users-me-app")
+                .unwrap()
+                .item
+                .status,
+            Danger
+        );
+        assert_eq!(
+            find(&r, "antigravity/brain/uuid-1").unwrap().item.status,
+            Danger
+        );
+        assert_eq!(find(&r, ".codex/log").unwrap().item.status, Safe);
+        assert_eq!(
+            find(&r, ".claude/shell-snapshots").unwrap().item.status,
+            Safe
+        );
+        assert_eq!(find(&r, "Cursor/Cache").unwrap().item.status, Safe);
+    }
+
+    #[test]
+    fn ai_settings_and_logins_are_never_listed() {
+        let secrets = [
+            ".codex/auth.json",
+            ".codex/config.toml",
+            ".claude/settings.json",
+            ".claude.json",
+            ".gemini/settings.json",
+            ".gemini/oauth_creds.json",
+            ".copilot/config.json",
+            ".continue/config.yaml",
+            ".local/share/amp/secrets.json",
+            "Library/Application Support/Cursor/User/globalStorage/state.vscdb",
+            "Library/Application Support/Claude/claude_desktop_config.json",
+            "Library/Application Support/Claude/vm_bundles/claudevm.bundle/sessiondata.img",
+        ];
+        let files: Vec<(&str, usize)> = secrets.iter().map(|s| (*s, BIG)).collect();
+        let (_d, r) = ai_scan(&files);
+        for item in &r.items {
+            for secret in secrets {
+                assert!(
+                    !Path::new(secret).starts_with(Path::new(&item.item.path))
+                        && !item.item.path.ends_with(secret),
+                    "{} would remove {secret}",
+                    item.item.path
+                );
+            }
+        }
+        assert!(r.items.is_empty(), "unexpected items: {:?}", paths(&r));
+    }
+
+    #[test]
+    fn claude_vm_image_is_review_and_session_data_kept() {
+        let (_d, r) = ai_scan(&[
+            (
+                "Library/Application Support/Claude/vm_bundles/claudevm.bundle/rootfs.img",
+                BIG,
+            ),
+            (
+                "Library/Application Support/Claude/vm_bundles/claudevm.bundle/sessiondata.img",
+                BIG,
+            ),
+        ]);
+        let ps = paths(&r);
+        assert_eq!(ps.len(), 1);
+        assert!(ps[0].ends_with("rootfs.img"));
+        assert_eq!(r.items[0].item.status, Review);
+    }
+
+    #[test]
+    fn cline_checkpoints_found_in_any_editor() {
+        let (_d, r) = ai_scan(&[
+            ("Library/Application Support/Cursor/User/globalStorage/saoudrizwan.claude-dev/checkpoints/h/x", BIG),
+            ("Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/t1/ui_messages.json", BIG),
+            ("Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json", BIG),
+        ]);
+        assert_eq!(
+            find(
+                &r,
+                "Cursor/User/globalStorage/saoudrizwan.claude-dev/checkpoints"
+            )
+            .unwrap()
+            .item
+            .status,
+            Review
+        );
+        assert_eq!(
+            find(&r, "Code/User/globalStorage/saoudrizwan.claude-dev/tasks")
+                .unwrap()
+                .item
+                .status,
+            Danger
+        );
+        assert!(find(&r, "settings").is_none());
+    }
+
+    #[test]
+    fn chatgpt_mirror_is_review() {
+        let (_d, r) = ai_scan(&[
+            (
+                "Library/Application Support/com.openai.chat/conversations-v3-abc/c1.data",
+                BIG,
+            ),
+            (
+                "Library/Application Support/com.openai.chat/drafts-v2-abc/d1.data",
+                BIG,
+            ),
+            ("Library/Caches/com.openai.chat/img", 5000),
+        ]);
+        assert_eq!(
+            find(&r, "conversations-v3-abc").unwrap().item.status,
+            Review
+        );
+        assert!(find(&r, "drafts-v2-abc").is_none());
+        assert_eq!(
+            find(&r, "Caches/com.openai.chat").unwrap().item.status,
+            Safe
+        );
+    }
+
+    #[test]
+    fn small_split_history_is_hidden() {
+        let (_d, r) = ai_scan(&[(".claude/projects/-tiny/s.jsonl", 2000)]);
+        assert!(r.items.is_empty());
+    }
+
+    #[test]
+    fn aider_project_files() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join(".aider.chat.history.md"), 5000);
+        write(&p.join(".aider.tags.cache.v4/cache.db"), 5000);
+        write(&p.join("main.py"), 5000);
+        let r = scan(d.path(), &["ai_assistants"]);
+        assert_eq!(find(&r, ".aider.tags.cache.v4").unwrap().item.status, Safe);
+        assert_eq!(
+            find(&r, ".aider.chat.history.md").unwrap().item.status,
+            Danger
+        );
+        assert_eq!(r.items.len(), 2);
+    }
+
+    #[test]
+    fn delete_refuses_ai_config_roots() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let home = root.join("home");
+        for rel in [
+            ".codex/auth.json",
+            ".claude/settings.json",
+            ".gemini/oauth_creds.json",
+        ] {
+            write(&home.join(rel), 10);
+        }
+        let protected = protected_paths(&home);
+        let roots = vec![home.clone()];
+        for rel in [
+            ".codex",
+            ".codex/auth.json",
+            ".claude",
+            ".gemini",
+            ".gemini/oauth_creds.json",
+        ] {
+            assert!(
+                delete_path(&scanned(&home.join(rel)), &roots, &protected).is_err(),
+                "{rel} was not protected"
+            );
+        }
+        assert!(home.join(".codex/auth.json").exists());
     }
 }
