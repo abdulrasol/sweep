@@ -1,0 +1,562 @@
+<title>خطة تطوير Sweep</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column, sticky progress header, phases as sections, tasks as rows with a check control and expandable detail */
+:root{
+  --bg:#f3f4f1; --surface:#ffffff; --surface-2:#eceee9; --fg:#1b2420; --muted:#5c6862; --line:#d7dbd4;
+  --accent:#0d6b5f; --accent-soft:#d9ece7; --crit:#b3261e; --crit-soft:#f7dedb; --high:#a15c00; --high-soft:#f6e7cf; --mid:#3f5d8a; --mid-soft:#dfe6f1;
+  --done:#2c7a3f;
+  --f-body:"IBM Plex Sans Arabic", "Geeza Pro", "Segoe UI", Tahoma, sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121614; --surface:#1a201d; --surface-2:#222a26; --fg:#e4ebe7; --muted:#9aa8a1; --line:#2f3934;
+  --accent:#4fc1ad; --accent-soft:#183a34; --crit:#ff8a80; --crit-soft:#3d1f1d; --high:#f0b35c; --high-soft:#3a2c17; --mid:#9db8e6; --mid-soft:#1f2a3c; --done:#6fcf86; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121614; --surface:#1a201d; --surface-2:#222a26; --fg:#e4ebe7; --muted:#9aa8a1; --line:#2f3934;
+  --accent:#4fc1ad; --accent-soft:#183a34; --crit:#ff8a80; --crit-soft:#3d1f1d; --high:#f0b35c; --high-soft:#3a2c17; --mid:#9db8e6; --mid-soft:#1f2a3c; --done:#6fcf86; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--f-body);font-size:15px;line-height:1.75;padding-inline:16px;padding-block:0 64px}
+.wrap{max-width:860px;margin-inline:auto}
+code,.mono{font-family:var(--f-mono);font-size:.86em;direction:ltr;unicode-bidi:isolate}
+code{background:var(--surface-2);padding:1px 6px;border-radius:4px;word-break:break-word}
+pre{background:var(--surface-2);padding:10px 12px;border-radius:6px;overflow-x:auto;direction:ltr;text-align:left;margin:6px 0}
+pre code{background:none;padding:0}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding-block:14px 12px}
+.titlerow{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 16px}
+h1{font-size:1.45rem;margin:0;font-weight:700;text-wrap:balance}
+.count{font-variant-numeric:tabular-nums;color:var(--muted);font-size:.9rem}
+.count b{color:var(--fg);font-size:1.1rem}
+.bar{height:8px;background:var(--surface-2);border-radius:99px;overflow:hidden;margin-top:10px}
+.bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .35s}
+.tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{font:inherit;font-size:.85rem;background:var(--surface);color:var(--muted);border:0;padding:4px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--surface)}
+.sync{font-size:.78rem;color:var(--muted);margin-inline-start:auto}
+.intro{color:var(--muted);margin:18px 0 6px;max-width:65ch}
+section.phase{margin-top:30px}
+.phead{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;justify-content:space-between;border-bottom:2px solid var(--fg);padding-bottom:6px}
+.phead h2{margin:0;font-size:1.15rem}
+.phead .pnum{font-family:var(--f-mono);color:var(--accent);margin-inline-end:6px}
+.phead .pc{font-variant-numeric:tabular-nums;font-size:.85rem;color:var(--muted)}
+.pgoal{color:var(--muted);font-size:.92rem;margin:8px 0 4px;max-width:70ch}
+.task{border-bottom:1px solid var(--line);display:grid;grid-template-columns:auto 1fr;gap:0 12px;padding-block:10px}
+.task.isdone .ttl{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--muted)}
+.chk{appearance:none;-webkit-appearance:none;width:auto;min-width:58px;height:30px;border:1.5px solid var(--line);border-radius:7px;background:var(--surface);color:var(--muted);font:inherit;font-size:.82rem;font-weight:600;cursor:pointer;margin-top:2px;padding:0 8px}
+.chk:hover{border-color:var(--accent);color:var(--accent)}
+.chk[aria-pressed="true"]{background:var(--done);border-color:var(--done);color:var(--surface)}
+.chk:focus-visible,.seg button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tmain{min-width:0}
+details summary{list-style:none;cursor:pointer;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+details summary::-webkit-details-marker{display:none}
+.tid{font-family:var(--f-mono);font-size:.8rem;color:var(--muted)}
+.ttl{font-weight:600}
+.chip{font-size:.72rem;font-weight:600;padding:0 8px;border-radius:99px;line-height:1.8;white-space:nowrap}
+.c-crit{background:var(--crit-soft);color:var(--crit)}
+.c-high{background:var(--high-soft);color:var(--high)}
+.c-mid{background:var(--mid-soft);color:var(--mid)}
+.eff{font-size:.75rem;color:var(--muted)}
+.when{font-size:.75rem;color:var(--done)}
+.more{font-size:.78rem;color:var(--accent);margin-inline-start:auto}
+details[open] .more{visibility:hidden}
+.body{margin-top:8px;display:grid;gap:10px}
+.blk h4{margin:0 0 2px;font-size:.8rem;letter-spacing:.02em;color:var(--accent)}
+.blk p,.blk ul{margin:0}
+.blk ul{padding-inline-start:20px}
+.files{font-size:.85rem;color:var(--muted)}
+.empty{color:var(--muted);padding:12px 0}
+@media (max-width:520px){.chk{min-width:50px}.more{display:none}}
+@media (prefers-reduced-motion:reduce){.bar i{transition:none}}
+</style>
+
+<div class="wrap" dir="rtl" lang="ar">
+<header class="top">
+  <div class="titlerow">
+    <h1>خطة تطوير Sweep</h1>
+    <div class="count"><b id="nDone">0</b> / <span id="nAll">0</span> مهمة منجزة · <span id="pct">0%</span></div>
+  </div>
+  <div class="bar" aria-hidden="true"><i id="barFill"></i></div>
+  <div class="tools">
+    <div class="seg" role="group" aria-label="تصفية">
+      <button id="f-all" aria-pressed="true" data-f="all">الكل</button>
+      <button id="f-open" aria-pressed="false" data-f="open">المتبقي</button>
+      <button id="f-done" aria-pressed="false" data-f="done">المنجز</button>
+    </div>
+    <span class="sync" id="sync">جاري التحميل…</span>
+  </div>
+</header>
+
+<p class="intro">الخطة مقسّمة على خمس مراحل، والترتيب مقصود: نبدأ بالأمان لأن الأداة تمسح نهائياً، وبعدها دقة المحرك، ثم المسارات الجديدة، ثم المعمارية والميزات. اضغط على أي مهمة حتى تشوف الشرح والحل ومعيار الإنجاز، ومن تخلصها اضغط «تم».</p>
+
+<main id="plan"></main>
+</div>
+
+<script>
+const PHASES = [
+{ id:"p0", n:"0", name:"الأمان أولاً", goal:"نضمن إن الأداة ما تمسح كود أو بيانات مهمة، ونسد الثغرات قبل لا نوسّع أي شي.",
+  tasks:[
+  { id:"0.1", t:"تغيير مفتاح التوقيع وحذفه من تاريخ git", pri:"crit", eff:"ساعة",
+    why:"الملف <code>sweep.key</code> هو المفتاح الخاص لتوقيع التحديثات، وموجود بالمستودع العام. صحيح إنه مشفّر بكلمة سر، بس أي أحد يقدر يحاول يكسرها، وإذا نجح يقدر يوقّع تحديث مزيف ينزل تلقائياً على أجهزة المستخدمين عن طريق الـ updater.",
+    how:`<ul>
+<li>ولّد مفتاح جديد خارج المشروع: <code>cargo tauri signer generate -w ~/.tauri/sweep.key</code></li>
+<li>حط المفتاح وكلمة السر بـ GitHub Secrets باسم <code>TAURI_SIGNING_PRIVATE_KEY</code> و <code>TAURI_SIGNING_PRIVATE_KEY_PASSWORD</code>، وخلّي الـ workflow يقرأها من هناك.</li>
+<li>بـ <code>tauri.conf.json</code> حقل <code>pubkey</code> لازم يحتوي <b>نص المفتاح العام نفسه</b> مو اسم ملف. حالياً مكتوب <code>sweep.key.pub</code>، وهذا يخلي التحقق من التحديث يفشل.</li>
+<li>احذف الملف من التاريخ: <code>git filter-repo --path sweep.key --invert-paths</code> ثم <code>git push --force</code>، وضيف <code>*.key</code> للـ <code>.gitignore</code>.</li>
+<li>انتبه: المستخدمين القدامى ما راح يقبلون تحديث موقّع بالمفتاح الجديد، فيحتاجون ينزلون النسخة الجديدة يدوياً مرة وحدة.</li></ul>`,
+    files:".gitignore, src-tauri/tauri.conf.json, .github/workflows/release.yml",
+    ok:"ما يوجد أي مفتاح خاص بالمستودع ولا بتاريخه، والإصدار الجديد يبني ويتوقّع من الـ CI." },
+  { id:"0.2", t:"إصلاح القواعد اللي ممكن تمسح كود", pri:"crit", eff:"ساعتين",
+    why:"بعض القواعد حالياً تمسح مجلدات فيها كود حقيقي وهي معلّمة SAFE.",
+    how:`<ul>
+<li><b>Go:</b> احذف <code>bin</code> و <code>pkg</code>. مجلد <code>pkg/</code> بالعرف مالت Go يحتوي كود المشروع، وأداة Go أصلاً ما تبني داخل المشروع. الكاش الحقيقي عالمي (المهمة 2.10).</li>
+<li><b>AI:</b> العلامة <code>.gitattributes</code> موجودة بأغلب المستودعات. احذف هذي القاعدة، وخلّي نماذج AI بالكاشات العالمية بس (المهمة 2.14).</li>
+<li><b>Python/Conda:</b> احذف <code>envs</code> و <code>pkgs</code> من قواعد المشروع.</li>
+<li><b>Docker:</b> احذف <code>~/.docker</code> من القائمة، لأن هذا ملف الإعدادات مو البيانات (المهمة 2.12 تعالج Docker صح).</li>
+<li><b>Universal Cache:</b> لا تعرض <code>~/Library/Caches</code> كعنصر واحد. اعرض كل مجلد داخله كعنصر منفصل بحالة REVIEW.</li>
+<li><b>PHP vendor:</b> غيّره لـ REVIEW، لأن بعض المشاريع القديمة ترفع vendor على git.</li></ul>`,
+    files:"src-tauri/src/cleanup_engine.rs",
+    ok:"ولا قاعدة تستهدف مجلد ممكن يحتوي كود، والفحص على مجلد مشاريعك ما يطلّع أي مجلد كود." },
+  { id:"0.3", t:"حماية git: لا تمسح شي متتبَّع", pri:"crit", eff:"نص يوم",
+    why:"هذي أقوى حماية عامة. إذا المجلد داخل مستودع git وفيه ملف واحد متتبَّع، معناها إنه جزء من المشروع مو كاش.",
+    how:`<ul>
+<li>قبل ما تضيف أي عنصر داخل مشروع، شغّل <code>git -C &lt;project&gt; ls-files --error-unmatch &lt;path&gt;</code> أو استخدم crate <code>git2</code>.</li>
+<li>إذا المجلد فيه ملفات متتبَّعة، تخطاه أو علّمه DANGER مع سبب واضح.</li>
+<li>كمعلومة إضافية، <code>git check-ignore -q &lt;path&gt;</code> يأكد إن المجلد بالـ gitignore، وهذا يرفع الثقة لـ SAFE.</li></ul>`,
+    files:"cleanup_engine.rs, Cargo.toml (git2)",
+    ok:"اختبار: مستودع فيه <code>build/</code> متتبَّع، والأداة ما تقترح مسحه." },
+  { id:"0.4", t:"دعم CACHEDIR.TAG", pri:"high", eff:"ساعة",
+    why:"معيار متفق عليه: أي مجلد فيه ملف <code>CACHEDIR.TAG</code> يبدأ بتوقيع معيّن هو كاش آمن للمسح. Cargo يحطه داخل <code>target/</code>، وأدوات ثانية تستخدمه.",
+    how:`<ul>
+<li>اقرأ أول 43 بايت وقارنها مع <code>Signature: 8a477f597d28d172789f06886806bc55</code>.</li>
+<li>إذا موجود ارفع الثقة لـ SAFE. وإذا مو موجود بمجلد <code>target</code> بمشروع Rust، علّمه REVIEW.</li></ul>`,
+    files:"cleanup_engine.rs",
+    ok:"<code>target/</code> مالت Rust يطلع SAFE بسبب التوقيع، ومجلد وهمي بنفس الاسم يطلع REVIEW." },
+  { id:"0.5", t:"المسح بالـ id بدل المسار، مع قائمة ممنوعات", pri:"crit", eff:"نص يوم",
+    why:"الأمر <code>cleanup_item</code> حالياً يقبل أي مسار من الواجهة. أي ثغرة بالواجهة تقدر تمسح أي شي بالجهاز.",
+    how:`<ul>
+<li>احفظ نتائج آخر فحص بالباك إند: <code>tauri::State&lt;Mutex&lt;HashMap&lt;String, CleanupItem&gt;&gt;&gt;</code>.</li>
+<li>غيّر الأمر لـ <code>cleanup_items(ids: Vec&lt;String&gt;)</code>، والمسار ياخذه من الذاكرة بس.</li>
+<li>قبل المسح سوّي <code>canonicalize</code> ورفض المسار إذا كان ممنوع: <code>/</code> و <code>~</code> و <code>~/Documents</code> و <code>~/Desktop</code> و <code>/System</code> و <code>/Applications</code> و <code>/usr</code>، أو إذا ما كان تحت جذر الفحص أو تحت مسار كاش عالمي معروف.</li>
+<li>استخدم <code>symlink_metadata</code>: إذا العنصر رابط رمزي، امسح الرابط بس مو اللي يأشر عليه.</li></ul>`,
+    files:"lib.rs, cleanup_engine.rs, ExecutionView.tsx, ReviewView.tsx",
+    ok:"استدعاء الأمر بـ id غير موجود أو بمسار ممنوع يرجع خطأ ولا يمسح شي." },
+  { id:"0.6", t:"تشديد صلاحيات Tauri", pri:"high", eff:"ساعة",
+    why:"<code>csp: null</code> ووجود plugins مثل shell و fs بدون حاجة يكبّر سطح الهجوم.",
+    how:`<ul>
+<li>فعّل CSP مثل: <code>default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'</code>.</li>
+<li>احذف <code>tauri-plugin-shell</code> و <code>tauri-plugin-fs</code> من Rust ومن package.json ومن <code>capabilities/main.json</code>. الواجهة ما تحتاجها.</li>
+<li>الأوامر الخارجية (مثل xcrun و brew) تتنفّذ من Rust بـ <code>std::process::Command</code> بقائمة ثابتة.</li></ul>`,
+    files:"tauri.conf.json, capabilities/main.json, Cargo.toml, lib.rs, package.json",
+    ok:"التطبيق يشتغل بدون plugin الـ shell والـ fs، والـ CSP مفعّل." },
+  { id:"0.7", t:"إلغاء Auto Purge أو تقييده", pri:"high", eff:"ساعة",
+    why:"الميزة تمسح بعد ثانية ونص بدون مراجعة. والـ useEffect يعيد الفحص كل ما تتغير ignoredPaths، فممكن يصير مسح ثاني بدون قصد.",
+    how:`<ul>
+<li>الأفضل تحذفها هسه، وترجعها بعدين بالمرحلة 4 كمهمة مجدولة مقيّدة بعناصر SAFE وقديمة بس.</li>
+<li>أضف شاشة تأكيد للعناصر DANGER يكتب فيها المستخدم كلمة مثل «امسح».</li></ul>`,
+    files:"App.tsx, ReviewView.tsx, SettingsView.tsx",
+    ok:"ما يصير أي مسح بدون ضغطة تأكيد من المستخدم." },
+  { id:"0.8", t:"تصحيح حساب الأحجام بالواجهة", pri:"high", eff:"ساعة",
+    why:"الواجهة تقرأ النص «512.0 KB» وتقسمه على 1024 كأنه MB، فالمجموع غلط.",
+    how:`<ul>
+<li>استخدم <code>size_bytes</code> بكل الحسابات، واعمل دالة <code>formatBytes</code> وحدة بـ TypeScript.</li>
+<li>أضف حقل <code>type</code> الناقص بالـ interface أو وحّد الاسم مع <code>category</code>.</li></ul>`,
+    files:"ReviewView.tsx, ExecutionView.tsx, types.d.ts",
+    ok:"المجموع المعروض يطابق مجموع <code>size_bytes</code> بالضبط." },
+  { id:"0.9", t:"id فريد لكل عنصر", pri:"mid", eff:"نص ساعة",
+    why:"الـ id حالياً يعتمد على اسم المشروع، فمشروعين بنفس الاسم يعطون نفس الـ id، والاختيار والـ dedup يتلخبطون.",
+    how:"خلّي الـ id هو hash للمسار الكامل، مثلاً بـ crate <code>blake3</code> أو <code>DefaultHasher</code>، وغيّر الـ dedup ليعتمد على المسار.",
+    files:"cleanup_engine.rs",
+    ok:"مشروعين اسمهم <code>app</code> بمكانين مختلفين يطلعون كعنصرين." },
+  { id:"0.10", t:"تنظيف بقايا AI Studio وتوحيد الإصدار", pri:"mid", eff:"ساعة",
+    why:"مكتبات مثل <code>@google/genai</code> و <code>express</code> و <code>dotenv</code> و <code>tsx</code> وملف <code>.env.example</code> ما لها علاقة بالتطبيق. والإصدار مكتوب بثلاث قيم مختلفة.",
+    how:`<ul>
+<li>احذف المكتبات والملف، وشيل <code>tauriSimulation.ts</code> واستبدل الاستيراد بـ <code>@tauri-apps/api/core</code>.</li>
+<li>احذف <code>version</code> من tauri.conf.json حتى ياخذها Tauri من Cargo.toml، وخلّي مصدر الإصدار واحد.</li>
+<li>صلّح <code>authors</code> بـ Cargo.toml.</li></ul>`,
+    files:"package.json, Cargo.toml, tauri.conf.json, src/lib",
+    ok:"<code>pnpm build</code> و <code>cargo build</code> يشتغلون والإصدار واحد بكل مكان." }
+  ]},
+{ id:"p1", n:"1", name:"دقة المحرك", goal:"الأرقام اللي يشوفها المستخدم لازم تكون صحيحة، والتطبيق ما يستهلك موارد بلا داعي.",
+  tasks:[
+  { id:"1.1", t:"حساب المساحة الفعلية على القرص", pri:"high", eff:"نص يوم",
+    why:"الحساب الحالي يجمع الحجم المنطقي، ويحسب الـ hardlinks أكثر من مرة (pnpm يعتمد عليها بكثرة)، ويتبع الروابط الرمزية.",
+    how:`<pre><code>use std::os::unix::fs::MetadataExt;
+let mut seen = HashSet::new();
+for e in WalkDir::new(p).follow_links(false) {
+    let m = e?.path().symlink_metadata()?;
+    if m.is_file() && seen.insert((m.dev(), m.ino())) {
+        total += m.blocks() * 512; // المساحة المحجوزة فعلاً
+    }
+}</code></pre>`,
+    files:"cleanup_engine.rs",
+    ok:"الرقم قريب من ناتج <code>du -sk</code> لنفس المجلد." },
+  { id:"1.2", t:"قراءة مساحة القرص الصحيحة", pri:"mid", eff:"ساعة",
+    why:"الكود يجمع كل الأقراص، وبـ APFS عدة volumes تشترك بنفس الحاوية، فالمساحة تنحسب أكثر من مرة.",
+    how:"خُذ القرص اللي <code>mount_point</code> مالته <code>/</code> بس، أو استخدم <code>statvfs</code> على مجلد المستخدم. وكتحسين لاحق على الماك، اقرأ <code>volumeAvailableCapacityForImportantUsage</code> اللي تحسب المساحة القابلة للتحرير.",
+    files:"lib.rs",
+    ok:"الرقم يطابق اللي يعرضه Finder أو <code>df -h /</code>." },
+  { id:"1.3", t:"تخفيف معلومات النظام", pri:"mid", eff:"ساعة",
+    why:"<code>System::new_all()</code> كل 3 ثواني يقرأ كل العمليات بالجهاز، وهذا يستهلك معالج بلا داعي.",
+    how:"احتفظ بكائن <code>System</code> واحد داخل <code>tauri::State</code>، وسوّي <code>refresh_cpu_usage()</code> و <code>refresh_memory()</code> بس. أما القرص فحدّثه كل 30 ثانية.",
+    files:"lib.rs",
+    ok:"استهلاك التطبيق للمعالج وهو واقف أقل من 1%." },
+  { id:"1.4", t:"إصلاح نافذة اختيار المجلد", pri:"mid", eff:"نص ساعة",
+    why:"الكود يستخدم <code>mpsc::recv</code> داخل async مع <code>unwrap</code>، وممكن يجمّد الخيط أو يطيّح التطبيق.",
+    how:"استخدم <code>app.dialog().file().blocking_pick_folder()</code> داخل <code>tauri::async_runtime::spawn_blocking</code>، أو <code>tokio::sync::oneshot</code> بدون unwrap.",
+    files:"lib.rs",
+    ok:"إلغاء النافذة يرجع <code>None</code> بدون أي تجميد." },
+  { id:"1.5", t:"مسارات ماك الصحيحة ودعم الـ glob", pri:"mid", eff:"ساعتين",
+    why:"مسار pnpm store غلط على الماك، والأنماط مثل <code>log/*.log</code> ما تشتغل لأن الكود يربطها كمسار حرفي.",
+    how:`<ul>
+<li>pnpm على الماك: <code>~/Library/pnpm/store</code>.</li>
+<li>Telegram: <code>~/Library/Application Support/Telegram Desktop</code> ونسخة الـ App Store بـ <code>~/Library/Group Containers/*.ru.keepcoder.Telegram</code>.</li>
+<li>استخدم crate <code>glob</code> لأي هدف فيه <code>*</code>.</li></ul>`,
+    files:"cleanup_engine.rs",
+    ok:"pnpm store و ملفات Laravel logs تطلع بالفحص." },
+  { id:"1.6", t:"منع المسح إذا التطبيق المرتبط شغال", pri:"high", eff:"ساعتين",
+    why:"مسح DerivedData و Xcode شغال، أو كاش Gradle و Android Studio شغال، ممكن يخرّب البناء الحالي أو يطيّح التطبيق.",
+    how:"كل قاعدة يكون عندها حقل <code>blocked_if_running</code> (مثلاً <code>Xcode</code> و <code>studio</code> و <code>java</code> للـ Gradle daemon). افحص بـ sysinfo قبل المسح، واعرض للمستخدم «سكّر Xcode أولاً».",
+    files:"cleanup_engine.rs",
+    ok:"وXcode مفتوح، عنصر DerivedData يظهر كمقفول مع سبب." }
+  ]},
+{ id:"p2", n:"2", name:"أهداف ماك جديدة", goal:"هنا المكسب الكبير بالمساحة. القاعدة: إذا الأداة الرسمية موجودة نستخدمها بدل المسح اليدوي.",
+  tasks:[
+  { id:"2.1", t:"Xcode: DeviceSupport والـ Archives والـ Previews", pri:"high", eff:"نص يوم",
+    why:"عادةً هذا أكبر مصدر عند مطوّر iOS و Flutter. مجلد DeviceSupport وحده ممكن يوصل 10 إلى 50 GB، لأن كل إصدار iOS توصل جهازك عليه ينحفظ له نسخة.",
+    how:`<ul>
+<li><code>~/Library/Developer/Xcode/iOS DeviceSupport</code> وكذلك watchOS و tvOS و visionOS: اعرض كل إصدار كعنصر، واقترح الإبقاء على أحدث إصدارين.</li>
+<li><code>~/Library/Developer/Xcode/Archives</code>: REVIEW، لأن فيها ملفات dSYM تحتاجها لتحليل الأعطال.</li>
+<li><code>~/Library/Developer/Xcode/UserData/Previews</code> و <code>~/Library/Caches/com.apple.dt.Xcode</code> و <code>~/Library/Developer/Xcode/DocumentationCache</code>: SAFE.</li>
+<li><code>~/Library/Developer/CoreSimulator/Caches</code> و <code>~/Library/Logs/CoreSimulator</code>: SAFE.</li></ul>`,
+    files:"rules (أو cleanup_engine.rs قبل المرحلة 3)",
+    ok:"كل إصدار iOS بـ DeviceSupport يطلع كسطر منفصل مع حجمه." },
+  { id:"2.2", t:"المحاكيات و Simulator runtimes", pri:"high", eff:"نص يوم",
+    why:"المحاكيات اللي انحذف نظامها تبقى تاخذ مساحة، والـ runtimes القديمة كل واحد منها 5 إلى 8 GB.",
+    how:`<ul>
+<li>اعرض <code>xcrun simctl list devices unavailable -j</code> ونظّفها بـ <code>xcrun simctl delete unavailable</code>.</li>
+<li>اعرض <code>xcrun simctl runtime list -j</code> واحذف المختار بـ <code>xcrun simctl runtime delete &lt;id&gt;</code>.</li>
+<li>لا تمسح <code>~/Library/Developer/CoreSimulator/Devices</code> يدوياً.</li></ul>`,
+    files:"وحدة جديدة: native_commands.rs",
+    ok:"قائمة الـ runtimes تطلع بأحجامها، والحذف يتم عن طريق xcrun." },
+  { id:"2.3", t:"CocoaPods", pri:"mid", eff:"ساعة",
+    why:"كاش الـ Pods ومستودع المواصفات يتراكمون مع مشاريع Flutter و iOS.",
+    how:"<code>~/Library/Caches/CocoaPods</code> بحالة SAFE، و <code>~/.cocoapods/repos</code> بحالة REVIEW (يرجع ينزل بأول <code>pod install</code>).",
+    files:"rules",
+    ok:"المسارين يطلعون بالفحص." },
+  { id:"2.4", t:"Flutter و Dart", pri:"high", eff:"ساعتين",
+    why:"<code>~/.pub-cache</code> يكبر مع كل مشروع وكل إصدار حزمة.",
+    how:`<ul>
+<li>استخدم <code>dart pub cache clean -f</code> بدل المسح اليدوي.</li>
+<li>بالمشاريع خلّي <code>flutter clean</code> هو الأمر الأساسي، والمسح اليدوي احتياط إذا Flutter مو موجود.</li>
+<li>أضف <code>macos/Pods</code> و <code>.flutter-plugins-dependencies</code> لقائمة المشروع.</li></ul>`,
+    files:"rules, native_commands.rs",
+    ok:"pub-cache يطلع بحجمه والتنظيف يتم بالأمر الرسمي." },
+  { id:"2.5", t:"Gradle و Android SDK و Android Studio", pri:"high", eff:"نص يوم",
+    why:"<code>~/.gradle/caches</code> ممكن يتجاوز 10 GB، والـ system-images والإصدارات القديمة من Android Studio تبقى بعد التحديث.",
+    how:`<ul>
+<li><code>~/.gradle/caches</code> و <code>~/.gradle/wrapper/dists</code> (اقترح حذف التوزيعات غير الأحدث) و <code>~/.gradle/daemon</code>.</li>
+<li>Android SDK: <code>system-images</code> و <code>build-tools</code> القديمة بحالة REVIEW. ويفضّل استخدام <code>sdkmanager --uninstall</code>.</li>
+<li>مجلدات الإصدارات القديمة من Android Studio بـ <code>~/Library/Caches/Google</code> و <code>~/Library/Application Support/Google</code> و <code>~/Library/Logs/Google</code>.</li>
+<li><code>~/.android/cache</code>: SAFE.</li></ul>`,
+    files:"rules",
+    ok:"كل إصدار قديم من Android Studio يطلع منفصل." },
+  { id:"2.6", t:"Node: الكاشات العالمية", pri:"high", eff:"نص يوم",
+    why:"كاشات npm و yarn و bun والمتصفحات اللي تنزلها أدوات الاختبار تاخذ جيجات بصمت.",
+    how:`<ul>
+<li><code>~/.npm/_cacache</code> (بـ <code>npm cache clean --force</code>) و <code>~/Library/Caches/Yarn</code> و <code>~/.bun/install/cache</code>.</li>
+<li>pnpm: <code>pnpm store prune</code> يحذف الحزم غير المستخدمة بس، وهذا أفضل من مسح الـ store كله.</li>
+<li>إصدارات Node القديمة بـ <code>~/.nvm/versions/node</code> و fnm و volta: REVIEW.</li>
+<li><code>~/Library/Caches/ms-playwright</code> و <code>~/Library/Caches/Cypress</code> و <code>~/Library/Caches/electron</code> و <code>~/.cache/puppeteer</code>.</li></ul>`,
+    files:"rules, native_commands.rs",
+    ok:"كل كاش يطلع منفصل، و pnpm يتنظف بالأمر الرسمي." },
+  { id:"2.7", t:"Rust: registry والـ toolchains", pri:"mid", eff:"ساعتين",
+    why:"<code>~/.cargo/registry</code> و <code>~/.cargo/git</code> يتراكمون، والـ toolchains القديمة كل واحد منها حوالي 1 GB.",
+    how:`<ul>
+<li><code>~/.cargo/registry/cache</code> و <code>registry/src</code> و <code>~/.cargo/git/checkouts</code>: SAFE.</li>
+<li>اعرض <code>rustup toolchain list</code> واحذف المختار بـ <code>rustup toolchain uninstall</code>.</li>
+<li>خيار للمشاريع النشطة: امسح <code>target/*/incremental</code> بس بدل الـ target كله.</li></ul>`,
+    files:"rules, native_commands.rs",
+    ok:"الـ toolchains تطلع مع إشارة على الافتراضي." },
+  { id:"2.8", t:"PHP و Laravel", pri:"mid", eff:"ساعة",
+    why:"كاش Composer وملفات Laravel logs تكبر مع الوقت.",
+    how:"<code>~/Library/Caches/composer</code> أو <code>~/.composer/cache</code> بحالة SAFE (أو <code>composer clear-cache</code>)، و <code>storage/logs/*.log</code> بكل مشروع Laravel بحالة SAFE.",
+    files:"rules",
+    ok:"ملفات logs مالت مشاريع Laravel تطلع." },
+  { id:"2.9", t:"Python", pri:"mid", eff:"ساعتين",
+    why:"كاشات pip و uv و poetry، وبيئات .venv بمشاريع ما تشتغل عليها.",
+    how:`<ul>
+<li><code>~/Library/Caches/pip</code> و <code>~/.cache/uv</code> و <code>~/Library/Caches/pypoetry</code>: SAFE.</li>
+<li>بالمشاريع: <code>__pycache__</code> و <code>.pytest_cache</code> و <code>.mypy_cache</code> و <code>.ruff_cache</code> و <code>.tox</code>: SAFE.</li>
+<li><code>.venv</code> و <code>venv</code> (تأكد بوجود <code>pyvenv.cfg</code>): REVIEW، ونقترحها بس للمشاريع المهملة.</li>
+<li>Conda: <code>conda clean -a</code> بدل مسح pkgs يدوياً.</li></ul>`,
+    files:"rules",
+    ok:"بيئة venv بدون <code>pyvenv.cfg</code> ما تطلع." },
+  { id:"2.10", t:"Go", pri:"mid", eff:"ساعة",
+    why:"الكاش الحقيقي مالت Go عالمي مو داخل المشروع.",
+    how:"<code>go clean -modcache</code> (يمسح <code>~/go/pkg/mod</code> ويتعامل مع صلاحيات القراءة فقط)، و <code>~/Library/Caches/go-build</code> بحالة SAFE.",
+    files:"rules, native_commands.rs",
+    ok:"الكاشين يطلعون، ولا شي يُمسح داخل مشاريع Go." },
+  { id:"2.11", t:"المحررات: VS Code و Cursor و JetBrains", pri:"mid", eff:"ساعتين",
+    why:"كاش المحررات ومجلد workspaceStorage يكبرون، والإضافات تخلّي نسخ قديمة بعد التحديث.",
+    how:`<ul>
+<li>لكل من <code>Code</code> و <code>Cursor</code> داخل <code>~/Library/Application Support</code>: <code>Cache</code> و <code>CachedData</code> و <code>CachedExtensionVSIXs</code> و <code>logs</code> بحالة SAFE، و <code>User/workspaceStorage</code> بحالة REVIEW.</li>
+<li>بـ <code>~/.vscode/extensions</code>: إذا موجود أكثر من إصدار لنفس الإضافة، القديم يُقترح للحذف.</li>
+<li>JetBrains: مجلدات الإصدارات القديمة بـ <code>~/Library/Caches/JetBrains</code>.</li></ul>`,
+    files:"rules",
+    ok:"النسخ القديمة من الإضافات تطلع منفصلة." },
+  { id:"2.12", t:"Docker و OrbStack و Colima", pri:"high", eff:"نص يوم",
+    why:"ملف <code>Docker.raw</code> ممكن يوصل 60 GB أو أكثر، بس مسحه يدوياً يضيّع كل الصور والـ volumes.",
+    how:`<ul>
+<li>اقرأ <code>docker system df --format json</code> واعرض الصور والحاويات والـ build cache والـ volumes كل وحدة سطر.</li>
+<li>التنظيف: <code>docker builder prune -f</code> و <code>docker image prune -a -f</code> و <code>docker container prune -f</code>. أما الـ volumes فبحالة DANGER مع تأكيد.</li>
+<li>إذا Docker مو شغال، اعرض رسالة بدل ما يفشل الفحص.</li></ul>`,
+    files:"native_commands.rs",
+    ok:"أحجام Docker تطلع مطابقة لناتج <code>docker system df</code>." },
+  { id:"2.13", t:"Homebrew", pri:"mid", eff:"ساعة",
+    why:"الكاش الحالي يغطي التنزيلات بس، والإصدارات القديمة بـ Cellar تبقى.",
+    how:"استخدم <code>brew cleanup -n</code> للمعاينة (اقرأ الحجم من آخر سطر)، و <code>brew cleanup -s --prune=all</code> للتنظيف.",
+    files:"native_commands.rs",
+    ok:"الحجم المتوقع من المعاينة يطلع قبل التنفيذ." },
+  { id:"2.14", t:"نماذج الذكاء الاصطناعي", pri:"mid", eff:"ساعتين",
+    why:"نماذج Ollama و LM Studio و Hugging Face كل واحد منها جيجات.",
+    how:`<ul>
+<li>Ollama: اعرض <code>ollama list</code> واحذف بـ <code>ollama rm</code>.</li>
+<li>LM Studio: <code>~/.lmstudio/models</code>، وكل نموذج سطر.</li>
+<li>Hugging Face: <code>~/.cache/huggingface/hub/models--*</code>، وكل نموذج سطر.</li>
+<li>الكل بحالة REVIEW، لأن إعادة التنزيل تاخذ وقت.</li></ul>`,
+    files:"rules, native_commands.rs",
+    ok:"كل نموذج يطلع باسمه وحجمه." },
+  { id:"2.15", t:"ملفات النظام والملفات الكبيرة", pri:"mid", eff:"نص يوم",
+    why:"سجلات النظام والنسخ الاحتياطية للآيفون وملفات التثبيت بالـ Downloads تاخذ مساحة كبيرة.",
+    how:`<ul>
+<li><code>~/Library/Logs</code> و <code>~/Library/Logs/DiagnosticReports</code>: SAFE.</li>
+<li><code>~/Library/Application Support/MobileSync/Backup</code>: DANGER، وكل نسخة سطر مع تاريخها.</li>
+<li>الـ Downloads: ملفات <code>.dmg</code> و <code>.pkg</code> و <code>.xip</code> و <code>.ipa</code> و <code>.apk</code> و <code>.zip</code> الأقدم من 30 يوم.</li>
+<li>حجم سلة المهملات <code>~/.Trash</code> مع زر لتفريغها.</li>
+<li>Time Machine local snapshots: اعرض <code>tmutil listlocalsnapshots /</code> للمعلومة.</li></ul>`,
+    files:"rules",
+    ok:"النسخ الاحتياطية للآيفون تطلع DANGER مع التاريخ." }
+  ]},
+{ id:"p3", n:"3", name:"معمارية المحرك", goal:"نحوّل المحرك من كود ثابت إلى نظام قواعد سريع وقابل للاختبار والتوسيع.",
+  tasks:[
+  { id:"3.1", t:"تقسيم المشروع لـ workspace", pri:"high", eff:"نص يوم",
+    why:"فصل المحرك عن Tauri يسمح بواجهة سطر أوامر واختبارات مستقلة.",
+    how:"ثلاث crates: <code>sweep-core</code> (القواعد والفحص والمسح)، و <code>sweep-cli</code>، و <code>src-tauri</code> اللي يستورد core بس.",
+    files:"Cargo.toml (workspace), crates/",
+    ok:"<code>cargo test -p sweep-core</code> يشتغل بدون Tauri." },
+  { id:"3.2", t:"محرك قواعد TOML", pri:"high", eff:"يوم",
+    why:"إضافة هدف جديد تصير تعديل ملف بدل تعديل كود، والمستخدم يقدر يضيف قواعده الخاصة.",
+    how:`<pre><code>[[rule]]
+id = "flutter-build"
+markers = ["pubspec.yaml"]
+targets = ["build", ".dart_tool", "ios/Pods"]
+safety = "safe"
+require_untracked = true
+native_cmd = ["flutter", "clean"]
+stale_after_days = 30
+blocked_if_running = []
+
+[[rule]]
+id = "xcode-device-support"
+global = "~/Library/Developer/Xcode/iOS DeviceSupport"
+split_children = true
+safety = "review"
+blocked_if_running = ["Xcode"]</code></pre>
+<ul><li>القواعد الأساسية تنضمّن بـ <code>include_str!</code>، وقواعد المستخدم من <code>~/Library/Application Support/Sweep/rules.toml</code>.</li></ul>`,
+    files:"sweep-core/src/rules.rs, rules/default.toml",
+    ok:"كل القواعد الحالية تنتقل للملف، ونفس نتائج الفحص تطلع." },
+  { id:"3.3", t:"منفّذ الأوامر الرسمية", pri:"high", eff:"نص يوم",
+    why:"أوامر مثل xcrun و brew و docker أأمن من المسح اليدوي، بس تحتاج تنفيذ مضبوط.",
+    how:"<code>std::process::Command</code> بقائمة أوامر مسموحة بس (بدون shell)، مع timeout، وقراءة stdout و stderr للسجل، ومعاينة (dry-run) لكل أمر يدعمها.",
+    files:"sweep-core/src/native.rs",
+    ok:"أمر غير موجود (مثل Docker مو مثبّت) يرجع حالة «غير متوفر» بدون خطأ." },
+  { id:"3.4", t:"فحص متوازي", pri:"high", eff:"نص يوم",
+    why:"الفحص حالياً بخيط واحد وبعمق 5 مستويات بس، وما يتخطى مجلدات مثل Pods و vendor و .venv.",
+    how:"استخدم <code>jwalk</code> أو <code>ignore::WalkParallel</code>، و <code>rayon</code> لحساب الأحجام. قائمة التخطي تنبني من أهداف كل القواعد، والعمق يصير إعداد (الافتراضي 8).",
+    files:"sweep-core/src/scan.rs",
+    ok:"الفحص على مجلد المشاريع أسرع بثلاث مرات على الأقل." },
+  { id:"3.5", t:"بث التقدّم وإمكانية الإلغاء", pri:"mid", eff:"نص يوم",
+    why:"المستخدم حالياً يشوف دائرة تدور بس، وما يقدر يوقف فحص طويل.",
+    how:"استخدم <code>tauri::ipc::Channel</code> لإرسال كل عنصر يُكتشف والمسار الحالي، مع <code>Arc&lt;AtomicBool&gt;</code> للإلغاء. الواجهة تعرض النتائج أول بأول.",
+    files:"lib.rs, ReviewView.tsx",
+    ok:"النتائج تبين أثناء الفحص، وزر الإيقاف يوقفه خلال ثانية." },
+  { id:"3.6", t:"كشف المشاريع المهملة", pri:"high", eff:"نص يوم",
+    why:"تمسح build و node_modules للمشاريع اللي ما اشتغلت عليها من شهور، وتترك المشاريع النشطة حتى ما تعيد البناء كل مرة. هذي الفكرة الأساسية بأدوات مثل kondo و npkill.",
+    how:"العمر = تاريخ آخر commit (بـ <code>git2</code>) أو أحدث تعديل لملفات السورس خارج مجلدات البناء. أضف عمود «آخر نشاط» وفلتر «أقدم من 30 / 90 يوم».",
+    files:"sweep-core/src/age.rs, ReviewView.tsx",
+    ok:"كل مشروع يطلع مع عمره، والفلتر يشتغل." },
+  { id:"3.7", t:"سلة المهملات أو المسح النهائي", pri:"mid", eff:"ساعتين",
+    why:"إمكانية التراجع تزيد ثقة المستخدم بالأداة.",
+    how:"استخدم crate <code>trash</code> مع إعداد للاختيار. وضّح للمستخدم إن السلة ما توفر مساحة إلا بعد ما تفرغها. للكاشات الكبيرة (أكثر من 5 GB) خلّي الافتراضي مسح نهائي مع تنبيه.",
+    files:"sweep-core/src/delete.rs, SettingsView.tsx",
+    ok:"العنصر يروح للسلة ويرجع منها بشكل طبيعي." },
+  { id:"3.8", t:"كشف صلاحية Full Disk Access", pri:"mid", eff:"ساعتين",
+    why:"مسارات مثل <code>~/Library/Containers</code> و <code>~/Library/Safari</code> تحتاج الصلاحية. بدونها الفحص يتجاهلها بصمت.",
+    how:"جرّب <code>read_dir(~/Library/Safari)</code>: إذا فشل بـ PermissionDenied معناها الصلاحية ناقصة. اعرض بطاقة توضيحية مع زر يفتح <code>x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles</code>.",
+    files:"lib.rs, ScanView.tsx",
+    ok:"بدون الصلاحية تطلع البطاقة، وبعد ما تعطيها تختفي." },
+  { id:"3.9", t:"الاختبارات و CI", pri:"high", eff:"يوم",
+    why:"أداة تمسح ملفات لازم تكون مختبرة، خصوصاً الحالات اللي لازم ما تمسح فيها.",
+    how:`<ul>
+<li>لكل قاعدة اختبار على مجلد وهمي (<code>tempfile</code>) يبني هيكل المشروع ويتأكد من النتائج.</li>
+<li>اختبارات سلبية: كود متتبَّع بـ git، ومسار ممنوع، ورابط رمزي يأشر لخارج الجذر، كلها لازم ما تنمسح.</li>
+<li>CI يشغّل <code>cargo test</code> و <code>cargo clippy -D warnings</code> و <code>pnpm lint</code> على macOS.</li></ul>`,
+    files:"sweep-core/tests/, .github/workflows/ci.yml",
+    ok:"كل الاختبارات تنجح على كل PR." }
+  ]},
+{ id:"p4", n:"4", name:"الميزات والإطلاق", goal:"نحوّل الأداة لمنتج متكامل وجاهز للنشر.",
+  tasks:[
+  { id:"4.1", t:"واجهة سطر أوامر", pri:"mid", eff:"نص يوم",
+    why:"مفيدة للسكربتات وللاستخدام السريع من التيرمنال.",
+    how:"<code>sweep scan ~/codes --dry-run --json</code> و <code>sweep clean --safe --older-than 30d</code>، باستخدام <code>clap</code>.",
+    files:"crates/sweep-cli",
+    ok:"الـ CLI يطلّع نفس نتائج التطبيق." },
+  { id:"4.2", t:"تنظيف مجدول", pri:"mid", eff:"نص يوم",
+    why:"تنظيف أسبوعي تلقائي للكاشات الآمنة بس.",
+    how:"ملف launchd agent في <code>~/Library/LaunchAgents</code> يشغّل الـ CLI بخيار <code>--safe --older-than 30d</code>، مع إشعار بالمساحة اللي توفّرت. هنا يرجع Auto Purge بشكل آمن.",
+    files:"sweep-cli, SettingsView.tsx",
+    ok:"المهمة تشتغل بالوقت المحدد وتطلع إشعار." },
+  { id:"4.3", t:"باحث الملفات الكبيرة والمكررة", pri:"mid", eff:"يوم",
+    why:"مو كل المساحة كاش. أحياناً فيديو أو أرشيف منسي.",
+    how:"فحص لملفات أكبر من 500 MB (قابل للتعديل). وللمكررات: قارن الحجم أولاً، ثم hash بـ <code>blake3</code> للملفات المتطابقة بالحجم بس.",
+    files:"sweep-core/src/large.rs, view جديد",
+    ok:"قائمة مرتبة بالحجم مع زر «اعرض بـ Finder»." },
+  { id:"4.4", t:"عرض مرئي للقرص", pri:"mid", eff:"يوم",
+    why:"خريطة بصرية (treemap) تبين وين المساحة بنظرة وحدة.",
+    how:"ارسم treemap من نتائج الفحص بـ <code>d3-hierarchy</code>، مع التكبير بالضغط على أي مربع.",
+    files:"view جديد",
+    ok:"الضغط على مربع يدخل للمجلد." },
+  { id:"4.5", t:"سجل المساحة المحررة", pri:"mid", eff:"ساعتين",
+    why:"يبين للمستخدم قيمة الأداة مع الوقت.",
+    how:"احفظ كل عملية تنظيف (التاريخ، العناصر، الحجم) بملف JSON أو SQLite بـ Application Support، واعرض المجموع ورسم بسيط.",
+    files:"sweep-core/src/history.rs, view جديد",
+    ok:"المجموع يزيد بعد كل تنظيف." },
+  { id:"4.6", t:"واجهة عربية و RTL", pri:"mid", eff:"يوم",
+    why:"تعدد اللغات يوسّع جمهور الأداة.",
+    how:"استخدم <code>i18next</code> بثلاث لغات (العربية والإنكليزية والكردية)، مع <code>dir=rtl</code> وأصناف Tailwind المنطقية (<code>ms-</code> و <code>me-</code>).",
+    files:"src/i18n, كل الـ views",
+    ok:"تبديل اللغة يقلب الاتجاه بدون ما يخرب التصميم." },
+  { id:"4.7", t:"التوقيع والـ notarization والـ README", pri:"high", eff:"نص يوم",
+    why:"بدون Developer ID و notarization، يرفض Gatekeeper فتح التطبيق أو يطلع تحذير يخوّف المستخدم.",
+    how:`<ul>
+<li>أضف <code>APPLE_CERTIFICATE</code> و <code>APPLE_ID</code> و <code>APPLE_TEAM_ID</code> و <code>APPLE_PASSWORD</code> للـ CI، و tauri-action يتكفل بالـ notarization.</li>
+<li>حدّث الـ README: الميزات الحقيقية، وجدول بكل الأهداف ومستوى أمانها، وشرح Full Disk Access.</li></ul>`,
+    files:".github/workflows/release.yml, README.md",
+    ok:"التطبيق ينفتح على جهاز ثاني بدون أي تحذير." }
+  ]}
+];
+
+const PRI = { crit:["حرج","c-crit"], high:["عالي","c-high"], mid:["متوسط","c-mid"] };
+const ALL = PHASES.flatMap(p => p.tasks.map(t => t.id));
+let state = {};      // { "0.1": {done:true, at:"..."} }
+let filter = "all";
+let db = null, ref = null, docExists = false, writing = Promise.resolve();
+const LS_KEY = "sweep-plan-progress";
+const keyOf = id => "t" + id.replace(".", "_");
+
+function esc(s){ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
+function fmtDate(iso){ try{ return new Date(iso).toLocaleDateString("ar-IQ",{day:"numeric",month:"short"}); }catch(e){ return ""; } }
+
+function render(){
+  const root = document.getElementById("plan");
+  const openSet = new Set([...root.querySelectorAll("details[open]")].map(d => d.dataset.id));
+  let html = "";
+  let doneTotal = 0;
+  for (const p of PHASES){
+    const pd = p.tasks.filter(t => state[keyOf(t.id)]?.done).length;
+    doneTotal += pd;
+    const visible = p.tasks.filter(t => {
+      const d = !!state[keyOf(t.id)]?.done;
+      return filter === "all" || (filter === "done" ? d : !d);
+    });
+    html += '<section class="phase" aria-labelledby="h-' + p.id + '"><div class="phead"><h2 id="h-' + p.id + '"><span class="pnum">المرحلة ' + p.n + '</span>' + esc(p.name) + '</h2><span class="pc">' + pd + ' / ' + p.tasks.length + '</span></div><p class="pgoal">' + esc(p.goal) + '</p>';
+    if (!visible.length) html += '<p class="empty">' + (filter === "done" ? "ما خلصت أي مهمة بهذي المرحلة بعد." : "كل مهام هذي المرحلة خلصت.") + '</p>';
+    for (const t of visible){
+      const s = state[keyOf(t.id)] || {};
+      const d = !!s.done;
+      const [pl, pc] = PRI[t.pri];
+      html += '<div class="task' + (d ? " isdone" : "") + '">'
+        + '<button class="chk" id="chk-' + keyOf(t.id) + '" data-id="' + t.id + '" aria-pressed="' + d + '" aria-label="' + (d ? "إلغاء الإنجاز: " : "تم: ") + esc(t.t) + '">' + (d ? "✓ تم" : "تم") + '</button>'
+        + '<div class="tmain"><details data-id="' + t.id + '"' + (openSet.has(t.id) ? " open" : "") + '><summary>'
+        + '<span class="tid">' + t.id + '</span><span class="ttl">' + esc(t.t) + '</span>'
+        + '<span class="chip ' + pc + '">' + pl + '</span><span class="eff">' + esc(t.eff) + '</span>'
+        + (d && s.at ? '<span class="when">أُنجزت ' + fmtDate(s.at) + '</span>' : "")
+        + '<span class="more">التفاصيل</span></summary>'
+        + '<div class="body">'
+        + '<div class="blk"><h4>ليش</h4><p>' + t.why + '</p></div>'
+        + '<div class="blk"><h4>الحل</h4>' + (t.how.trim().startsWith("<") ? t.how : "<p>" + t.how + "</p>") + '</div>'
+        + '<div class="blk"><h4>الملفات</h4><p class="files mono">' + esc(t.files) + '</p></div>'
+        + '<div class="blk"><h4>متى نعتبرها خلصت</h4><p>' + t.ok + '</p></div>'
+        + '</div></details></div></div>';
+    }
+    html += '</section>';
+  }
+  root.innerHTML = html;
+  document.getElementById("nDone").textContent = doneTotal;
+  document.getElementById("nAll").textContent = ALL.length;
+  const pct = Math.round(doneTotal / ALL.length * 100);
+  document.getElementById("pct").textContent = pct + "%";
+  document.getElementById("barFill").style.width = pct + "%";
+}
+
+function saveLocal(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){} }
+function loadLocal(){ try{ const v = localStorage.getItem(LS_KEY); if (v) state = JSON.parse(v) || {}; }catch(e){} }
+function setSync(msg){ document.getElementById("sync").textContent = msg; }
+
+function toggle(id){
+  const k = keyOf(id);
+  const now = !state[k]?.done;
+  const entry = { done: now, at: now ? new Date().toISOString() : null };
+  state = { ...state, [k]: entry };
+  render();
+  saveLocal();
+  if (!ref) return;
+  setSync("جاري الحفظ…");
+  writing = writing.then(async () => {
+    try {
+      if (docExists) await ref.update({ [k]: entry });
+      else { await ref.set(state); docExists = true; }
+      setSync("محفوظ على حسابك");
+    } catch(e) {
+      setSync(e && e.code === "not_granted" ? "عرض فقط: ما عندك صلاحية تعديل" : "تعذّر الحفظ، حاول مرة ثانية");
+    }
+  });
+}
+
+document.getElementById("plan").addEventListener("click", e => {
+  const b = e.target.closest(".chk");
+  if (b) toggle(b.dataset.id);
+});
+document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+  filter = b.dataset.f;
+  document.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  render();
+}));
+
+loadLocal();
+render();
+setSync("محفوظ على هذا المتصفح");
+
+(async () => {
+  try {
+    db = window.claude?.use ? await window.claude.use("db") : null;
+  } catch(e){ db = null; }
+  if (!db) { setSync("محفوظ على هذا المتصفح"); return; }
+  ref = db.doc("progress/state");
+  ref.onSnapshot(snap => {
+    docExists = snap.exists;
+    if (snap.exists){
+      const data = snap.data() || {};
+      const merged = {};
+      for (const [k,v] of Object.entries(data)) if (v && typeof v === "object") merged[k] = { done: !!v.done, at: v.at || null };
+      state = merged;
+      saveLocal();
+      render();
+    }
+    setSync("محفوظ على حسابك");
+  }, () => setSync("محفوظ على هذا المتصفح"));
+})();
+</script>
