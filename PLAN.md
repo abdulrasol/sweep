@@ -12,7 +12,7 @@
 
 **المرحلة 0: الأمان أولاً**
 
-- [ ] 0.1 تغيير مفتاح التوقيع وحذفه من تاريخ git (حرج) — جزئياً: المفتاح ما عاد متتبَّع و `*.key` بالـ gitignore. باقي: توليد مفتاح جديد، GitHub Secrets، تحديث pubkey، حذف المفتاح من التاريخ
+- [x] 0.1 تغيير مفتاح التوقيع وحذفه من تاريخ git (حرج) (أُنجزت 2026-10-05) — بقرار من المستخدم: حُذف الـ updater والمفاتيح بالكامل بدل توليد مفتاح جديد
 - [x] 0.2 إصلاح القواعد اللي ممكن تمسح كود (حرج) (أُنجزت 2026-10-05)
 - [x] 0.3 حماية git: لا تمسح شي متتبَّع (حرج) (أُنجزت 2026-10-05)
 - [x] 0.4 دعم CACHEDIR.TAG (عالي) (أُنجزت 2026-10-05)
@@ -26,7 +26,7 @@
 **المرحلة 1: دقة المحرك**
 
 - [x] 1.1 حساب المساحة الفعلية على القرص (عالي) (أُنجزت 2026-10-05)
-- [ ] 1.2 قراءة مساحة القرص الصحيحة (متوسط) — الكود جاهز. بانتظار مقارنة الرقم مع Finder على الماك
+- [x] 1.2 قراءة مساحة القرص الصحيحة (متوسط) (أُنجزت 2026-10-05) — تحقق على الماك: 13.2 GB فارغة تطابق System Settings، والعرض صار بالوحدات العشرية
 - [ ] 1.3 تخفيف معلومات النظام (متوسط) — الكود جاهز. بانتظار قياس استهلاك المعالج على الماك
 - [ ] 1.4 إصلاح نافذة اختيار المجلد (متوسط) — الكود جاهز. بانتظار تجربة إلغاء النافذة على الماك
 - [x] 1.5 مسارات ماك الصحيحة ودعم الـ glob (متوسط) (أُنجزت 2026-10-05)
@@ -49,6 +49,7 @@
 - [ ] 2.13 Homebrew (متوسط)
 - [ ] 2.14 نماذج الذكاء الاصطناعي (متوسط)
 - [ ] 2.15 ملفات النظام والملفات الكبيرة (متوسط)
+- [ ] 2.16 تنظيف أدوات الذكاء الاصطناعي (عالي) — الكود جاهز ومختبَر، بانتظار فحص تجريبي على الماك
 
 **المرحلة 3: معمارية المحرك**
 
@@ -524,6 +525,30 @@ for e in WalkDir::new(p).follow_links(false) {
 **الملفات:** `rules`
 
 **متى نعتبرها خلصت:** النسخ الاحتياطية للآيفون تطلع DANGER مع التاريخ.
+
+
+### 2.16 تنظيف أدوات الذكاء الاصطناعي
+
+**الأولوية:** عالي · **الوقت التقريبي:** يوم · **أُضيفت بطلب المستخدم 2026-10-05**
+
+**ليش:** أدوات الذكاء الاصطناعي تخزّن كاش ومحادثات ونقاط استرجاع تكبر بسرعة. مثلاً صورة الـ VM مالت Claude Desktop توصل 10 GB أو أكثر، و checkpoints مالت Cline ممكن توصل عشرات الجيجات.
+
+**الحل:** وحدة جديدة `ai_assistants` بثلاث درجات ما تختلط بنفس القاعدة:
+
+- **SAFE:** الكاش والسجلات وملفات الأعطال (Electron caches، `logs`، `shell-snapshots`).
+- **REVIEW:** أشياء ترجع تتنزل، مثل صورة الـ VM مالت Claude والنسخة المحلية من محادثات ChatGPT (المحادثات الأصلية بحسابك)، و checkpoints مالت Cline و Roo و Kilo، وفهرس Continue.
+- **DANGER:** سجل المحادثات المحلي اللي ما ينرجع. كل مشروع أو محادثة يطلع سطر منفصل، والمسح يحتاج كتابة DELETE.
+- **محمي دائماً:** ملفات الإعدادات وتسجيل الدخول والتعليمات، مثل `auth.json` و `config.toml` و `settings.json` و `oauth_creds.json` و `.claude.json` و `state.vscdb` و `sessiondata.img`. لا تنمسح ولا ينمسح أي مجلد يحتويها.
+
+الأدوات المغطاة: Claude Desktop و Claude Code و ChatGPT و Codex (CLI والتطبيق) و Cursor و Google Antigravity (IDE و CLI) و Gemini CLI و Qwen Code و Copilot (CLI و VS Code) و Cline و Roo و Kilo (بأي محرر) و Continue و Windsurf و Trae و Kiro و Amp و opencode و Aider.
+
+**غير مغطاة بعد (ما عندنا توثيق موثوق لمساراتها):** Kimi و DeepSeek و BoltAI و CodeGeeX و Comate و ZCode و Kombai و Hermes و cagent. نضيفها بعد ما نشوف بنيتها على الجهاز.
+
+**الملفات:** `src-tauri/src/cleanup_engine/ai_rules.rs, cleanup_engine.rs, ScanView.tsx`
+
+**متى نعتبرها خلصت:** فحص على الماك بوحدة AI Assistants يطلّع الكاش SAFE والمحادثات DANGER، وما يطلع أي ملف إعدادات أو تسجيل دخول. (الاختبارات: 8 اختبارات تنجح، منها اختبار سلبي يتأكد إن ملفات الإعدادات وتسجيل الدخول ما تطلع أبداً.)
+
+**المصادر:** [مسارات جلسات أدوات CLI](https://allaboutcoding.ghinda.com/where-ai-coding-clis-store-session-logs/) · [Antigravity](https://jazzyalex.github.io/agent-sessions/guides/antigravity-cli-local-history.html) · [Claude VM bundle](https://lilting.ch/en/articles/claude-code-cowork-vm-macos) · [Cursor](https://vibe-replay.com/blog/cursor-local-storage/) · [Copilot CLI](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference) · [Cline](https://agent-safehouse.dev/docs/agent-investigations/cline) · [ChatGPT (BleachBit)](https://github.com/bleachbit/bleachbit/pull/2384) · [Gemini CLI](https://geminicli.com/docs/cli/session-management/)
 
 ---
 
