@@ -193,8 +193,6 @@ pub fn run() {
     sys.refresh_memory();
 
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(ScanStore::default()))
         .manage(SysState {

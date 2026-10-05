@@ -1,10 +1,10 @@
 {
   "identifier": "main-capability",
   "description": "Main capability for Sweep. File access happens only through Sweep's own Rust commands.",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
-    "core:default",
-    "updater:default",
-    "process:allow-restart"
+    "core:default"
   ]
 }
