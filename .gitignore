@@ -29,3 +29,6 @@ src-tauri/remote/
 
 # Project specific
 !/.env.example
+
+# Signing keys: never commit private keys (PLAN 0.1)
+*.key
