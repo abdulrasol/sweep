@@ -40,6 +40,8 @@ pub struct CleanupItem {
     /// Human label for the kind of artifact, e.g. "Build Artifacts".
     #[serde(rename = "type")]
     pub category: String,
+    /// Broad bucket for filtering: Projects, Dev Tools, AI Tools, Editors, System.
+    pub group: String,
     pub size_bytes: u64,
     pub status: Safety,
     pub description: String,
@@ -556,6 +558,7 @@ struct Candidate {
     blocked_if_running: Vec<&'static str>,
     project_root: Option<PathBuf>,
     min_bytes: u64,
+    group: &'static str,
 }
 
 pub fn scan_directory(
@@ -604,6 +607,7 @@ pub fn scan_directory(
                     path: path_str,
                     file_type: c.file_type,
                     category: c.category,
+                    group: c.group.to_string(),
                     size_bytes: size,
                     status: c.safety,
                     description: c.description,
@@ -624,6 +628,16 @@ pub fn scan_directory(
     ScanResult {
         items,
         allowed_roots,
+    }
+}
+
+/// Filter bucket for a global rule's module.
+fn module_group(module: &str) -> &'static str {
+    match module {
+        "ai_assistants" | "ai" => "AI Tools",
+        "editors" => "Editors",
+        "os_system" | "social" | "adobe" => "System & Apps",
+        _ => "Dev Tools",
     }
 }
 
@@ -664,6 +678,7 @@ fn collect_global(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) 
                         blocked_if_running: rule.blocked_if_running.to_vec(),
                         project_root: None,
                         min_bytes: rule.min_bytes,
+                        group: module_group(rule.module),
                     });
                 }
             } else {
@@ -687,6 +702,7 @@ fn collect_global(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) 
                     blocked_if_running: rule.blocked_if_running.to_vec(),
                     project_root: None,
                     min_bytes: rule.min_bytes,
+                    group: module_group(rule.module),
                 });
             }
         }
@@ -760,6 +776,7 @@ fn collect_projects(
                         blocked_if_running: rule.blocked_if_running.to_vec(),
                         project_root: Some(dir.to_path_buf()),
                         min_bytes: 1,
+                        group: "Projects",
                     });
                 }
             }
@@ -1287,6 +1304,7 @@ mod tests {
                 path: path.to_string_lossy().into_owned(),
                 file_type: String::new(),
                 category: String::new(),
+                group: String::new(),
                 size_bytes: 1,
                 status: Safe,
                 description: String::new(),

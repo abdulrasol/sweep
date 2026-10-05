@@ -106,6 +106,42 @@ async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, Strin
     .map_err(|e| format!("Could not open the folder picker: {e}"))
 }
 
+/// Show a scanned item in Finder (or the platform file manager).
+#[tauri::command]
+fn reveal_item(store: State<'_, Mutex<ScanStore>>, id: String) -> Result<(), String> {
+    let path = {
+        let guard = store.lock().map_err(lock_err)?;
+        guard
+            .items
+            .get(&id)
+            .map(|s| s.item.path.clone())
+            .ok_or("This item is not part of the last scan. Scan again.")?
+    };
+    let mut cmd = if cfg!(target_os = "macos") {
+        let mut c = std::process::Command::new("open");
+        c.arg("-R");
+        c
+    } else if cfg!(target_os = "windows") {
+        let mut c = std::process::Command::new("explorer");
+        c.arg("/select,");
+        c
+    } else {
+        std::process::Command::new("xdg-open")
+    };
+    let target = if cfg!(any(target_os = "macos", target_os = "windows")) {
+        PathBuf::from(&path)
+    } else {
+        Path::new(&path)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default()
+    };
+    cmd.arg(target)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Could not show the item: {e}"))
+}
+
 /// Open an https link in the default browser. Replaces the shell plugin (PLAN 0.6).
 #[tauri::command]
 fn open_external(url: String) -> Result<(), String> {
@@ -204,6 +240,7 @@ pub fn run() {
             cleanup_item,
             select_directory,
             open_external,
+            reveal_item,
             get_system_info,
             get_app_version
         ])

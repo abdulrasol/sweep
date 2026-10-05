@@ -8,6 +8,8 @@ declare global {
     path: string;
     /** Artifact kind, e.g. "Build Cache". */
     type: string;
+    /** Filter bucket: Projects, Dev Tools, AI Tools, Editors, System & Apps. */
+    group: string;
     /** Framework or tool, e.g. "Flutter". */
     file_type: string;
     size_bytes: number;

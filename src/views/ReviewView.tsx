@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Search, CheckCircle2, AlertTriangle, Trash2, RefreshCw, EyeOff } from 'lucide-react';
-import { motion } from 'motion/react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
+import {
+  Search, Check, AlertTriangle, RefreshCw, EyeOff, Lock, FolderSearch,
+  ChevronDown, ShieldCheck, ShieldAlert, ArrowDownWideNarrow, X,
+} from 'lucide-react';
 import { invoke, formatBytes } from '../lib/tauri';
 
 interface SystemInfo {
@@ -22,279 +24,490 @@ interface ReviewViewProps {
   onStartCleaning: (items: CleanupItem[]) => void;
 }
 
-export default function ReviewView({ scanPath, selectedModules, ignoredPaths, sysInfo, onIgnore, onStartCleaning }: ReviewViewProps) {
+type SafetyFilter = 'ALL' | SafetyLevel;
+type SortKey = 'size' | 'name';
+
+const GROUP_ORDER = ['Projects', 'Dev Tools', 'AI Tools', 'Editors', 'System & Apps'];
+
+const SAFETY_STYLE: Record<SafetyLevel, { badge: string; dot: string; label: string }> = {
+  SAFE: { badge: 'bg-primary/10 text-primary border-primary/25', dot: 'bg-primary', label: 'Safe' },
+  REVIEW: { badge: 'bg-amber-500/10 text-amber-500 border-amber-500/30', dot: 'bg-amber-500', label: 'Review' },
+  DANGER: { badge: 'bg-error/10 text-error border-error/30', dot: 'bg-error', label: 'Danger' },
+};
+
+const sum = (list: CleanupItem[]) => list.reduce((acc, i) => acc + i.size_bytes, 0);
+
+/** "…/codes/flutter/app/build" style title: the last two path segments. */
+const shortTitle = (path: string) => {
+  const parts = path.split('/').filter(Boolean);
+  return parts.slice(-2).join(' / ');
+};
+
+/** Parent folder, shortened in the middle so both ends stay readable. */
+const parentPath = (path: string, max = 70) => {
+  const parent = path.split('/').slice(0, -2).join('/') || '/';
+  const home = parent.replace(/^\/Users\/[^/]+/, '~');
+  if (home.length <= max) return home;
+  const keep = Math.floor((max - 1) / 2);
+  return `${home.slice(0, keep)}…${home.slice(-keep)}`;
+};
+
+function Chip({ active, onClick, children, title }: {
+  active: boolean; onClick: () => void; children: ReactNode; title?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors
+        ${active
+          ? 'bg-on-surface text-surface border-on-surface'
+          : 'bg-surface border-outline text-on-surface/70 hover:border-outline-variant hover:text-on-surface'}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Checkbox({ checked, partial, disabled, onClick, label }: {
+  checked: boolean; partial?: boolean; disabled?: boolean; onClick: () => void; label: string;
+}) {
+  return (
+    <button
+      role="checkbox"
+      aria-checked={partial ? 'mixed' : checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className={`w-4 h-4 shrink-0 rounded border flex items-center justify-center transition-colors
+        ${checked || partial ? 'bg-primary border-primary text-on-primary' : 'border-outline-variant hover:border-primary bg-surface'}
+        ${disabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
+    >
+      {checked && <Check className="w-3 h-3" strokeWidth={3} />}
+      {!checked && partial && <span className="w-2 h-0.5 bg-on-primary rounded" />}
+    </button>
+  );
+}
+
+export default function ReviewView({ scanPath, selectedModules, ignoredPaths, onIgnore, onStartCleaning }: ReviewViewProps) {
   const [items, setItems] = useState<CleanupItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [scanError, setScanError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [confirmText, setConfirmText] = useState('');
+  const [scanNonce, setScanNonce] = useState(0);
+
+  const [query, setQuery] = useState('');
+  const [groupFilter, setGroupFilter] = useState<string>('ALL');
+  const [typeFilter, setTypeFilter] = useState<string>('ALL');
+  const [safetyFilter, setSafetyFilter] = useState<SafetyFilter>('ALL');
+  const [sortKey, setSortKey] = useState<SortKey>('size');
 
   useEffect(() => {
-    const fetchData = async () => {
+    const run = async () => {
       setLoading(true);
       try {
-        const data = await invoke<CleanupItem[]>('scan_environment', { 
+        const data = await invoke<CleanupItem[]>('scan_environment', {
           path: scanPath,
           modules: selectedModules,
-          ignoredPaths: ignoredPaths
+          ignoredPaths,
         });
         setItems(data);
         // Pre-select only SAFE items that are not blocked by a running app.
         setSelectedIds(new Set(data.filter(i => i.status === 'SAFE' && !i.blocked_by).map(i => i.id)));
         setScanError(null);
       } catch (err) {
-        console.error("Scan failed:", err);
+        console.error('Scan failed:', err);
         setScanError(String(err));
       } finally {
         setLoading(false);
       }
     };
-    fetchData();
+    run();
     // ignoredPaths is read at scan time; ignoring an item removes it locally without a rescan.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanPath, selectedModules]);
+  }, [scanPath, selectedModules, scanNonce]);
 
-  const selectable = items.filter(i => !i.blocked_by);
+  // ----- Derived data -------------------------------------------------------
 
-  const toggleSelect = (id: string) => {
-    if (items.find(i => i.id === id)?.blocked_by) return;
-    const newSelected = new Set(selectedIds);
-    if (newSelected.has(id)) newSelected.delete(id);
-    else newSelected.add(id);
-    setSelectedIds(newSelected);
-  };
+  const groups = useMemo(() => {
+    const map = new Map<string, CleanupItem[]>();
+    for (const i of items) map.set(i.group, [...(map.get(i.group) ?? []), i]);
+    return [...map.entries()].sort(
+      (a, b) => (GROUP_ORDER.indexOf(a[0]) + 99) % 99 - (GROUP_ORDER.indexOf(b[0]) + 99) % 99,
+    );
+  }, [items]);
 
-  const toggleAll = () => {
-    if (selectedIds.size === selectable.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(selectable.map(i => i.id)));
-    }
-  };
+  const inGroup = useMemo(
+    () => (groupFilter === 'ALL' ? items : items.filter(i => i.group === groupFilter)),
+    [items, groupFilter],
+  );
 
-  const handleIgnore = (path: string) => {
-    onIgnore(path);
-    setItems(prev => prev.filter(item => item.path !== path));
-  };
+  const types = useMemo(() => {
+    const map = new Map<string, CleanupItem[]>();
+    for (const i of inGroup) map.set(i.type, [...(map.get(i.type) ?? []), i]);
+    return [...map.entries()].sort((a, b) => sum(b[1]) - sum(a[1]));
+  }, [inGroup]);
 
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = inGroup.filter(i =>
+      (typeFilter === 'ALL' || i.type === typeFilter) &&
+      (safetyFilter === 'ALL' || i.status === safetyFilter) &&
+      (!q || i.path.toLowerCase().includes(q) || i.type.toLowerCase().includes(q) || i.file_type.toLowerCase().includes(q)),
+    );
+    return list.sort((a, b) => (sortKey === 'size' ? b.size_bytes - a.size_bytes : a.path.localeCompare(b.path)));
+  }, [inGroup, typeFilter, safetyFilter, query, sortKey]);
+
+  const sections = useMemo(() => {
+    if (groupFilter !== 'ALL') return [[groupFilter, visible] as [string, CleanupItem[]]];
+    const map = new Map<string, CleanupItem[]>();
+    for (const i of visible) map.set(i.group, [...(map.get(i.group) ?? []), i]);
+    return [...map.entries()].sort((a, b) => sum(b[1]) - sum(a[1]));
+  }, [visible, groupFilter]);
+
+  const maxSize = visible.reduce((m, i) => Math.max(m, i.size_bytes), 1);
   const selectedItems = items.filter(i => selectedIds.has(i.id));
-  const totalBytes = selectedItems.reduce((acc, i) => acc + i.size_bytes, 0);
-  const [totalValue, totalUnit] = formatBytes(totalBytes).split(' ');
+  const selectedBytes = sum(selectedItems);
   const needsConfirm = selectedItems.some(i => i.status === 'DANGER');
   const canStart = selectedItems.length > 0 && (!needsConfirm || confirmText === 'DELETE');
-
-  const filteredItems = items.filter(item => 
-    item.path.toLowerCase().includes(filter.toLowerCase()) || 
-    item.type.toLowerCase().includes(filter.toLowerCase())
+  const safetyCounts = (['SAFE', 'REVIEW', 'DANGER'] as SafetyLevel[]).map(
+    s => [s, items.filter(i => i.status === s)] as const,
   );
+  const filtersActive = groupFilter !== 'ALL' || typeFilter !== 'ALL' || safetyFilter !== 'ALL' || query !== '';
+
+  // ----- Actions -------------------------------------------------------------
+
+  const setSelection = (ids: string[], on: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      ids.forEach(id => (on ? next.add(id) : next.delete(id)));
+      return next;
+    });
+  };
+
+  const toggleItem = (item: CleanupItem) => {
+    if (item.blocked_by) return;
+    setSelection([item.id], !selectedIds.has(item.id));
+  };
+
+  const selectionState = (list: CleanupItem[]) => {
+    const selectable = list.filter(i => !i.blocked_by);
+    const n = selectable.filter(i => selectedIds.has(i.id)).length;
+    return { selectable, all: n > 0 && n === selectable.length, some: n > 0 && n < selectable.length };
+  };
+
+  const toggleList = (list: CleanupItem[]) => {
+    const { selectable, all } = selectionState(list);
+    setSelection(selectable.map(i => i.id), !all);
+  };
+
+  const handleIgnore = (item: CleanupItem) => {
+    onIgnore(item.path);
+    setItems(prev => prev.filter(i => i.id !== item.id));
+    setSelection([item.id], false);
+  };
+
+  const reveal = (item: CleanupItem) => {
+    invoke('reveal_item', { id: item.id }).catch(err => console.error(err));
+  };
+
+  const clearFilters = () => {
+    setGroupFilter('ALL');
+    setTypeFilter('ALL');
+    setSafetyFilter('ALL');
+    setQuery('');
+  };
+
+  // ----- Render ---------------------------------------------------------------
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-full space-y-4">
-        <RefreshCw className="w-8 h-8 text-primary animate-spin opacity-50" />
-        <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-on-surface/30">Targeting {selectedModules.length} Modules...</p>
+        <RefreshCw className="w-8 h-8 text-primary animate-spin opacity-60" />
+        <p className="text-sm text-on-surface/60">Scanning {selectedModules.length} modules…</p>
+        <p className="text-xs font-mono text-on-surface/40 max-w-md truncate">{scanPath}</p>
       </div>
     );
   }
 
+  const [selValue, selUnit] = formatBytes(selectedBytes).split(' ');
+  const allVisible = selectionState(visible);
+
   return (
-    <div className="max-w-6xl mx-auto py-8 px-6 space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="md:col-span-2 bg-surface-container border border-outline rounded-xl p-8 flex flex-col justify-center space-y-6">
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold tracking-tight">Review Identified Junk</h2>
-            <p className="text-sm text-on-surface/40 max-w-xl leading-relaxed">
-              We found {items.length} items across the {selectedModules.length} active modules. Review the list below and select items to purge.
+    <div className="max-w-6xl mx-auto py-6 px-6 space-y-4">
+      {/* Summary */}
+      <section className="bg-surface-container border border-outline rounded-2xl p-6 flex flex-wrap items-center gap-6">
+        <div className="flex-1 min-w-[240px] space-y-1">
+          <h2 className="text-xl font-semibold tracking-tight">Review what to remove</h2>
+          <p className="text-sm text-on-surface/60">
+            {items.length} items, {formatBytes(sum(items))} in total.
+            Safe items are selected for you; Review and Danger items are not.
+          </p>
+          <div className="flex flex-wrap gap-3 pt-2 text-xs">
+            {safetyCounts.map(([s, list]) => (
+              <span key={s} className="flex items-center gap-1.5 text-on-surface/70">
+                <span className={`w-2 h-2 rounded-full ${SAFETY_STYLE[s].dot}`} />
+                {SAFETY_STYLE[s].label} {list.length} · {formatBytes(sum(list))}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="text-right">
+          <div className="text-[11px] uppercase tracking-wider text-on-surface/50 font-semibold">Selected</div>
+          <div className="flex items-baseline justify-end gap-1.5">
+            <span className="text-4xl font-light tracking-tight tabular-nums">{selValue}</span>
+            <span className="text-sm text-on-surface/60 font-mono">{selUnit}</span>
+          </div>
+          <div className="text-xs text-on-surface/50">{selectedItems.length} items</div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={() => onStartCleaning(selectedItems)}
+            disabled={!canStart}
+            className="px-5 py-2.5 bg-on-surface text-surface rounded-lg font-semibold text-xs uppercase tracking-wider hover:brightness-90 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Remove selected
+          </button>
+          <button
+            onClick={() => setScanNonce(n => n + 1)}
+            className="flex items-center justify-center gap-2 px-5 py-2 border border-outline rounded-lg text-xs font-medium text-on-surface/70 hover:bg-surface-bright transition"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Scan again
+          </button>
+        </div>
+
+        {needsConfirm && (
+          <div className="basis-full flex flex-wrap items-center gap-3 p-3 rounded-xl border border-error/30 bg-error/10">
+            <ShieldAlert className="w-4 h-4 text-error shrink-0" />
+            <p className="text-xs text-error font-medium flex-1 min-w-[200px]">
+              Your selection includes Danger items that cannot be recovered. Type DELETE to confirm.
             </p>
-          </div>
-          <div className="flex gap-3">
-            <button 
-              onClick={() => onStartCleaning(selectedItems)}
-              disabled={!canStart}
-              className="px-6 py-2.5 bg-on-surface text-surface rounded-lg font-bold text-[10px] uppercase tracking-[0.1em] hover:brightness-90 active:scale-95 transition-all shadow-sm disabled:opacity-50"
-            >
-              Start Purge Sequence
-            </button>
-            <button 
-              onClick={() => window.location.reload()}
-              className="px-6 py-2.5 border border-outline rounded-lg font-bold text-[10px] uppercase tracking-[0.1em] hover:bg-surface-bright transition-all text-on-surface/60"
-            >
-              Adjust Scope
-            </button>
-          </div>
-          {needsConfirm && (
-            <div className="space-y-2 p-4 rounded-xl border border-error/30 bg-error/10">
-              <p className="text-xs text-error font-medium">
-                Your selection includes DANGER items that cannot be regenerated automatically. Type DELETE to confirm.
-              </p>
-              <input
-                id="danger-confirm"
-                value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
-                placeholder="DELETE"
-                className="w-48 bg-surface-dim border border-error/40 rounded-lg px-3 py-1.5 text-xs font-mono outline-none focus:border-error"
-              />
-            </div>
-          )}
-          {scanError && (
-            <p className="text-xs text-error font-medium">Scan failed: {scanError}</p>
-          )}
-        </div>
-
-        <div className="bg-surface-bright/50 border border-outline rounded-xl p-8 flex flex-col items-center justify-center text-center space-y-2 relative overflow-hidden group">
-          <div className="absolute -top-4 -right-4 p-3 opacity-[0.03]">
-            <Trash2 className="w-32 h-32 stroke-[1]" />
-          </div>
-          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface/30">Total Reclaimable</span>
-          <div className="flex flex-col items-center">
-            <div className="flex items-baseline gap-2 relative z-10">
-              <motion.span 
-                key={totalBytes}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-6xl font-light font-sans tracking-tighter"
-              >
-                {totalValue}
-              </motion.span>
-              <span className="text-xs text-on-surface/40 font-mono">{totalUnit}</span>
-            </div>
-            {sysInfo && (
-              <div className="text-[10px] font-bold text-primary/60 uppercase tracking-widest mt-1">
-                ≈ {((totalBytes / sysInfo.disk_total) * 100).toFixed(2)}% of Hard Drive
-              </div>
-            )}
-          </div>
-          <div className="w-12 h-0.5 bg-primary/30 rounded-full mt-2" />
-        </div>
-      </div>
-
-      <div className="bg-surface-container border border-outline rounded-2xl overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-outline flex items-center justify-between bg-surface-bright/30">
-          <div className="flex items-center gap-4">
-             <label className="flex items-center gap-3 cursor-pointer group">
-              <div 
-                onClick={toggleAll}
-                className={`w-4 h-4 rounded-md border transition-all flex items-center justify-center
-                  ${selectedIds.size === selectable.length && selectable.length > 0 ? 'bg-primary border-primary' : 'border-outline-variant group-hover:border-primary'}
-                `}
-              >
-                {selectedIds.size === selectable.length && selectable.length > 0 && <CheckCircle2 className="w-3 h-3 text-on-primary shrink-0" />}
-              </div>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface/60">Select All Items</span>
-            </label>
-          </div>
-          <div className="relative w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-on-surface/30" />
-            <input 
-              placeholder="Filter by path or type..."
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="w-full bg-surface-dim border border-outline rounded-lg px-9 py-2 text-xs outline-none focus:border-primary/50 transition-all placeholder:text-on-surface/20"
+            <input
+              id="danger-confirm"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder="DELETE"
+              className="w-36 bg-surface border border-error/40 rounded-lg px-3 py-1.5 text-xs font-mono outline-none focus:border-error"
             />
           </div>
+        )}
+        {scanError && <p className="basis-full text-xs text-error font-medium">Scan failed: {scanError}</p>}
+      </section>
+
+      {/* Filters */}
+      <section className="sticky top-0 z-10 bg-surface-dim/95 backdrop-blur border border-outline rounded-2xl p-4 space-y-3">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          <Chip active={groupFilter === 'ALL'} onClick={() => { setGroupFilter('ALL'); setTypeFilter('ALL'); }}>
+            All <span className="opacity-60 tabular-nums">{formatBytes(sum(items))}</span>
+          </Chip>
+          {groups.map(([g, list]) => (
+            <Chip key={g} active={groupFilter === g} onClick={() => { setGroupFilter(g); setTypeFilter('ALL'); }}>
+              {g} <span className="opacity-60 tabular-nums">{list.length} · {formatBytes(sum(list))}</span>
+            </Chip>
+          ))}
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b border-outline text-[10px] uppercase font-bold tracking-widest text-on-surface/30">
-                <th className="w-12 p-4 text-center">
-                  <RefreshCw className="w-3 h-3 mx-auto opacity-30" />
-                </th>
-                <th className="p-4 text-left">Path / Project</th>
-                <th className="p-4 text-left">Type</th>
-                <th className="p-4 text-right">Size</th>
-                <th className="p-4 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-outline/50">
-              {filteredItems.map((item) => (
-                <motion.tr 
-                  layout
-                  key={item.id}
-                  className={`hover:bg-surface-bright/50 transition-colors group ${selectedIds.has(item.id) ? 'bg-primary/[0.01]' : 'opacity-40'}`}
-                >
-                  <td className="p-4 text-center">
-                    <div 
-                      onClick={() => toggleSelect(item.id)}
-                      className={`w-4 h-4 rounded-md border transition-all flex items-center justify-center mx-auto cursor-pointer
-                        ${selectedIds.has(item.id) ? 'bg-primary border-primary' : 'border-outline-variant group-hover:border-primary'}
-                      `}
-                    >
-                      {selectedIds.has(item.id) && <CheckCircle2 className="w-3 h-3 text-on-primary shrink-0" />}
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center gap-3">
-                        {item.status === 'DANGER' && (
-                          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-error/20 border border-error/30 animate-pulse">
-                            <AlertTriangle className="w-3.5 h-3.5 text-error" />
-                          </div>
-                        )}
-                        {item.status === 'REVIEW' && (
-                          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-yellow-500/20 border border-yellow-500/30">
-                            <AlertTriangle className="w-3.5 h-3.5 text-yellow-500" />
-                          </div>
-                        )}
-                        <span className="text-xs font-mono font-bold text-on-surface/90 truncate max-w-[400px]" title={item.path}>{item.path}</span>
-                      </div>
-                      <div className={`text-[11px] leading-relaxed p-2.5 rounded-xl border transition-all
-                        ${item.status === 'SAFE' 
-                          ? 'bg-surface-dim/50 border-outline/20 text-on-surface/40' 
-                          : 'shadow-sm font-medium'}
-                        ${item.status === 'DANGER' 
-                          ? 'bg-error/10 border-error/30 text-error' 
-                          : ''}
-                        ${item.status === 'REVIEW' 
-                          ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-600' 
-                          : ''}
-                      `}>
-                        {item.description}
-                      </div>
-                      {item.blocked_by && (
-                        <div className="text-[11px] font-semibold text-error">
-                          Close {item.blocked_by} first. This item stays locked while it is running.
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                  <td className="p-4 text-[10px] font-bold text-on-surface/40 uppercase tracking-tighter">{item.type}</td>
-                  <td className="p-4 text-right">
-                    <div className="flex flex-col items-end">
-                      <span className="text-xs font-mono font-medium text-on-surface/70">{formatBytes(item.size_bytes)}</span>
-                      {sysInfo && (
-                        <span className="text-[9px] font-mono text-on-surface/30">
-                          {((item.size_bytes / sysInfo.disk_total) * 100).toFixed(3)}%
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="p-4 text-center">
-                    <div className="flex items-center justify-center gap-2">
-                       <span className={`text-[9px] font-bold px-2 py-0.5 rounded border uppercase tracking-[0.05em]
-                        ${item.status === 'SAFE' ? 'bg-primary/10 text-primary border-primary/20' : 
-                          item.status === 'REVIEW' ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' : 
-                          'bg-error/10 text-error border-error/20'}
-                      `}>
-                        {item.status}
-                      </span>
-                      <button 
-                        onClick={() => handleIgnore(item.path)}
-                        className="p-1.5 hover:bg-surface-dim rounded-lg text-on-surface/30 hover:text-error transition-all group/ignore"
-                        title="Ignore forever"
-                      >
-                        <EyeOff className="w-3.5 h-3.5 group-hover/ignore:scale-110" />
-                      </button>
-                    </div>
-                  </td>
-                </motion.tr>
-              ))}
-            </tbody>
-          </table>
+        {types.length > 1 && (
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            <button
+              onClick={() => setTypeFilter('ALL')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap border transition-colors
+                ${typeFilter === 'ALL' ? 'border-primary/50 bg-primary/10 text-primary' : 'border-transparent text-on-surface/60 hover:text-on-surface'}`}
+            >
+              All types
+            </button>
+            {types.map(([t, list]) => (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(t)}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap border transition-colors
+                  ${typeFilter === t ? 'border-primary/50 bg-primary/10 text-primary' : 'border-transparent text-on-surface/60 hover:text-on-surface'}`}
+              >
+                {t} <span className="opacity-60 tabular-nums">{formatBytes(sum(list))}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex rounded-lg border border-outline overflow-hidden text-xs" role="group" aria-label="Safety level">
+            {(['ALL', 'SAFE', 'REVIEW', 'DANGER'] as SafetyFilter[]).map(s => (
+              <button
+                key={s}
+                onClick={() => setSafetyFilter(s)}
+                className={`px-3 py-1.5 font-medium transition-colors flex items-center gap-1.5
+                  ${safetyFilter === s ? 'bg-on-surface text-surface' : 'bg-surface text-on-surface/70 hover:text-on-surface'}`}
+              >
+                {s !== 'ALL' && <span className={`w-1.5 h-1.5 rounded-full ${SAFETY_STYLE[s].dot}`} />}
+                {s === 'ALL' ? 'Any level' : SAFETY_STYLE[s].label}
+              </button>
+            ))}
+          </div>
+
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-on-surface/40" />
+            <input
+              id="review-search"
+              placeholder="Search path, type or tool"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="w-full bg-surface border border-outline rounded-lg pl-9 pr-3 py-1.5 text-xs outline-none focus:border-primary/60 placeholder:text-on-surface/40"
+            />
+          </div>
+
+          <button
+            onClick={() => setSortKey(k => (k === 'size' ? 'name' : 'size'))}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-outline rounded-lg text-xs text-on-surface/70 hover:text-on-surface bg-surface"
+          >
+            <ArrowDownWideNarrow className="w-3.5 h-3.5" />
+            {sortKey === 'size' ? 'Largest first' : 'By path'}
+          </button>
+
+          {filtersActive && (
+            <button onClick={clearFilters} className="flex items-center gap-1 text-xs text-on-surface/60 hover:text-on-surface">
+              <X className="w-3.5 h-3.5" /> Clear filters
+            </button>
+          )}
         </div>
-      </div>
+      </section>
+
+      {/* List */}
+      <section className="bg-surface-container border border-outline rounded-2xl overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-outline text-xs text-on-surface/70">
+          <Checkbox
+            checked={allVisible.all}
+            partial={allVisible.some}
+            disabled={allVisible.selectable.length === 0}
+            onClick={() => toggleList(visible)}
+            label="Select all shown items"
+          />
+          <span className="font-medium">
+            {visible.length} shown · {formatBytes(sum(visible))}
+          </span>
+          <button
+            onClick={() => setSelection(visible.filter(i => i.status === 'SAFE' && !i.blocked_by).map(i => i.id), true)}
+            className="ml-auto flex items-center gap-1.5 text-primary hover:underline"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" /> Select safe shown
+          </button>
+          <button onClick={() => setSelection(visible.map(i => i.id), false)} className="hover:text-on-surface">
+            Clear selection
+          </button>
+        </div>
+
+        {visible.length === 0 && (
+          <div className="p-10 text-center space-y-3">
+            <p className="text-sm text-on-surface/60">
+              {items.length === 0 ? 'Nothing to clean in the selected modules.' : 'No items match these filters.'}
+            </p>
+            {filtersActive && (
+              <button onClick={clearFilters} className="text-xs text-primary hover:underline">Clear filters</button>
+            )}
+          </div>
+        )}
+
+        {sections.map(([group, list]) => {
+          if (list.length === 0) return null;
+          const sel = selectionState(list);
+          return (
+            <div key={group}>
+              {groupFilter === 'ALL' && (
+                <div className="flex items-center gap-3 px-4 py-2 bg-surface-bright/60 border-b border-outline text-[11px] uppercase tracking-wider font-semibold text-on-surface/60">
+                  <Checkbox
+                    checked={sel.all}
+                    partial={sel.some}
+                    disabled={sel.selectable.length === 0}
+                    onClick={() => toggleList(list)}
+                    label={`Select all in ${group}`}
+                  />
+                  <span>{group}</span>
+                  <span className="ml-auto normal-case tracking-normal font-mono">{list.length} · {formatBytes(sum(list))}</span>
+                </div>
+              )}
+
+              <ul className="divide-y divide-outline/60">
+                {list.map(item => {
+                  const selected = selectedIds.has(item.id);
+                  const open = expanded.has(item.id);
+                  const style = SAFETY_STYLE[item.status];
+                  return (
+                    <li
+                      key={item.id}
+                      onClick={() => toggleItem(item)}
+                      className={`grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-4 px-4 py-3 border-l-2 transition-colors
+                        ${selected ? 'border-l-primary bg-primary/[0.04]' : 'border-l-transparent hover:bg-surface-bright/50'}
+                        ${item.blocked_by ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                    >
+                      <div className="pt-0.5">
+                        <Checkbox
+                          checked={selected}
+                          disabled={!!item.blocked_by}
+                          onClick={() => toggleItem(item)}
+                          label={`Select ${item.path}`}
+                        />
+                      </div>
+
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {item.status === 'DANGER' && <AlertTriangle className="w-3.5 h-3.5 text-error shrink-0" />}
+                          <span className="text-sm font-semibold truncate" title={item.path}>{shortTitle(item.path)}</span>
+                          <span className="text-[11px] px-1.5 py-0.5 rounded bg-surface-bright text-on-surface/70 whitespace-nowrap">{item.type}</span>
+                          {item.file_type && item.file_type !== item.type && (
+                            <span className="text-[11px] text-on-surface/50 whitespace-nowrap truncate">{item.file_type}</span>
+                          )}
+                        </div>
+                        <div className="text-[11px] font-mono text-on-surface/50 truncate" title={item.path}>
+                          {parentPath(item.path)}
+                        </div>
+                        <p className={`text-xs text-on-surface/60 leading-relaxed ${open ? '' : 'line-clamp-1'}`}>
+                          {item.description}
+                        </p>
+                        {item.blocked_by && (
+                          <p className="flex items-center gap-1.5 text-xs font-medium text-error">
+                            <Lock className="w-3 h-3" /> Close {item.blocked_by} to remove this item.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1.5 min-w-[150px]">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-mono font-medium tabular-nums whitespace-nowrap">{formatBytes(item.size_bytes)}</span>
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${style.badge}`}>
+                            {style.label}
+                          </span>
+                        </div>
+                        <div className="w-full h-1 rounded-full bg-surface-bright overflow-hidden" aria-hidden>
+                          <div className={`h-full ${style.dot} opacity-70`} style={{ width: `${Math.max(2, (item.size_bytes / maxSize) * 100)}%` }} />
+                        </div>
+                        <div className="flex items-center gap-0.5 text-on-surface/50" onClick={e => e.stopPropagation()}>
+                          <button onClick={() => reveal(item)} title="Show in Finder" className="p-1.5 rounded-md hover:bg-surface-bright hover:text-on-surface">
+                            <FolderSearch className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => handleIgnore(item)} title="Never show this path again" className="p-1.5 rounded-md hover:bg-surface-bright hover:text-error">
+                            <EyeOff className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setExpanded(prev => { const n = new Set(prev); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); return n; })}
+                            title={open ? 'Less detail' : 'More detail'}
+                            aria-expanded={open}
+                            className="p-1.5 rounded-md hover:bg-surface-bright hover:text-on-surface"
+                          >
+                            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
+      </section>
     </div>
   );
 }
