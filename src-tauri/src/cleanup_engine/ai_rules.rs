@@ -371,6 +371,22 @@ const OTHERS: &[GlobalRule] = &[
         "Codebase embeddings Continue uses for search. Rebuilt automatically, which takes a while on large projects.",
     ),
     cache("Continue", ".continue/logs", NONE),
+    // ----- DeepSeek CLI (layout seen on the user's Mac, 2026-10-05) -----------
+    history(
+        "DeepSeek sessions",
+        ".deepseek/sessions",
+        &["deepseek"],
+        false,
+        "DeepSeek CLI conversation sessions. Deleting them is permanent.",
+    ),
+    review(
+        "DeepSeek prompt history",
+        ".deepseek/composer_history.txt",
+        "AI Chat History",
+        &["deepseek"],
+        "The list of prompts you typed in DeepSeek CLI.",
+    ),
+    cache("DeepSeek", ".deepseek/audit.log", &["deepseek"]),
     // ----- Windsurf / Amp / opencode / Aider -----------------------------------
     history(
         "Windsurf Cascade",
@@ -434,6 +450,14 @@ pub(super) const PROTECTED: &[&str] = &[
     ".continue/config.yaml",
     ".continue/config.json",
     ".cline",
+    ".deepseek",
+    ".deepseek/config.toml",
+    ".deepseek/instructions.md",
+    ".deepseek/skills",
+    ".deepseek/automations",
+    ".deepseek/tasks",
+    ".kimi-work",
+    ".kimi-work/bin",
     ".codeium",
     ".local/share",
     ".local/share/amp/secrets.json",

@@ -1387,7 +1387,11 @@ mod tests {
             (".claude/shell-snapshots/snap.sh", 5000),
             (".gemini/antigravity/brain/uuid-1/task.md", BIG),
             ("Library/Application Support/Cursor/Cache/data_0", 5000),
+            (".deepseek/sessions/s1.json", 5000),
+            (".deepseek/audit.log", 500),
         ]);
+        assert_eq!(find(&r, ".deepseek/sessions").unwrap().item.status, Danger);
+        assert_eq!(find(&r, ".deepseek/audit.log").unwrap().item.status, Safe);
         assert_eq!(
             find(&r, ".codex/sessions/2026").unwrap().item.status,
             Danger
@@ -1423,6 +1427,11 @@ mod tests {
             ".copilot/config.json",
             ".continue/config.yaml",
             ".local/share/amp/secrets.json",
+            ".deepseek/config.toml",
+            ".deepseek/instructions.md",
+            ".deepseek/skills/s.md",
+            ".deepseek/tasks/t.json",
+            ".kimi-work/bin/kimi",
             "Library/Application Support/Cursor/User/globalStorage/state.vscdb",
             "Library/Application Support/Claude/claude_desktop_config.json",
             "Library/Application Support/Claude/vm_bundles/claudevm.bundle/sessiondata.img",

@@ -542,7 +542,11 @@ for e in WalkDir::new(p).follow_links(false) {
 
 الأدوات المغطاة: Claude Desktop و Claude Code و ChatGPT و Codex (CLI والتطبيق) و Cursor و Google Antigravity (IDE و CLI) و Gemini CLI و Qwen Code و Copilot (CLI و VS Code) و Cline و Roo و Kilo (بأي محرر) و Continue و Windsurf و Trae و Kiro و Amp و opencode و Aider.
 
-**غير مغطاة بعد (ما عندنا توثيق موثوق لمساراتها):** Kimi و DeepSeek و BoltAI و CodeGeeX و Comate و ZCode و Kombai و Hermes و cagent. نضيفها بعد ما نشوف بنيتها على الجهاز.
+**DeepSeek CLI:** أُضيف بعد فحص بنيته على جهاز المستخدم: `sessions` بدرجة DANGER، و `composer_history.txt` بدرجة REVIEW، و `audit.log` بدرجة SAFE. والإعدادات والتعليمات والـ skills والـ tasks محمية.
+
+**مستبعدة:** مجلد `~/.kimi-work/bin` هو برنامج Kimi نفسه مو كاش (محمي)، ومجلد BoltAI فارغ.
+
+**غير مغطاة بعد (ما عندنا توثيق موثوق لمساراتها):** CodeGeeX و Comate و ZCode و Kombai و Hermes و cagent.
 
 **الملفات:** `src-tauri/src/cleanup_engine/ai_rules.rs, cleanup_engine.rs, ScanView.tsx`
 
