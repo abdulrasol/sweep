@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Terminal, Cpu, Activity, CheckCircle2, X, Copy, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { invoke } from '../lib/tauriSimulation';
+import { invoke, formatBytes } from '../lib/tauri';
 
 interface ExecutionViewProps {
   items: CleanupItem[];
@@ -40,33 +40,30 @@ export default function ExecutionView({ items, verbose = false, onComplete }: Ex
         
         if (verbose) {
           addLog(`SYSCALL: Preparing FS-unlink for path ${item.path}`);
-          addLog(`DEBUG: Target type detected as ${item.file_type || item.type} (${item.category || 'Unknown'})`);
+          addLog(`DEBUG: Target type detected as ${item.file_type} (${item.type})`);
         }
 
         addLog(`Purging: ${item.path}...`);
         
         try {
-          await invoke('cleanup_item', { item });
-          const sizeVal = parseFloat(item.size);
-          const sizeGB = item.size.includes('GB') ? sizeVal : sizeVal / 1024;
-          
-          totalFreed += sizeGB;
+          const freed = await invoke<number>('cleanup_item', { id: item.id });
+          totalFreed += freed;
           setFreedSize(totalFreed);
           
           if (verbose) {
             addLog(`SYSCALL: Unlink SUCCESS. Disk block reclaimed.`);
           }
-          addLog(`SUCCESS: Reclaimed ${item.size}`);
+          addLog(`SUCCESS: Reclaimed ${formatBytes(freed)}`);
         } catch (err) {
           if (verbose) addLog(`DEBUG: Error details: ${JSON.stringify(err)}`);
-          addLog(`ERROR: Failed to purge ${item.path}`);
+          addLog(`ERROR: ${item.path}: ${String(err)}`);
         }
         
         setProcessedCount(i + 1);
         setProgress(((i + 1) / items.length) * 100);
       }
       
-      addLog(`Cleanup sequence complete. Total space reclaimed: ${totalFreed.toFixed(1)} GB.`);
+      addLog(`Cleanup sequence complete. Total space reclaimed: ${formatBytes(totalFreed)}.`);
       if (verbose) {
         addLog("SYSTEM: Flushing IO buffers.");
         addLog("DEBUG: Process detached. Returning control to main thread.");
@@ -119,7 +116,7 @@ export default function ExecutionView({ items, verbose = false, onComplete }: Ex
           </div>
           <div className="flex items-center gap-2 bg-surface-dim border border-outline px-3 py-1.5 rounded-lg shadow-sm">
             <Trash2 className="w-3 h-3 text-primary opacity-60" />
-            <span className="text-[9px] font-bold uppercase tracking-widest text-primary/80">Purged: {freedSize.toFixed(1)} GB</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-primary/80">Purged: {formatBytes(freedSize)}</span>
           </div>
         </div>
       </div>

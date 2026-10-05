@@ -20,10 +20,11 @@ import {
   SiHuggingface,
   SiAnaconda,
   SiVagrant,
-  SiDiscord
+  SiDiscord,
+  SiXcode
 } from 'react-icons/si';
 import { motion } from 'motion/react';
-import { invoke } from '../lib/tauriSimulation';
+import { invoke } from '../lib/tauri';
 
 interface ScanViewProps {
   initialPath: string;
@@ -35,25 +36,26 @@ export default function ScanView({ initialPath, initialModules, onInitiate }: Sc
   const [path, setPath] = useState(initialPath || '/Users/rasol/DevsTools');
   
   const modulesDef = [
-    { id: 'flutter', title: 'Flutter / Dart', icon: SiFlutter, description: 'Pub caches, build artifacts, and pods.', path: 'pubspec.yaml', color: 'text-[#02569B]' },
+    { id: 'flutter', title: 'Flutter / Dart', icon: SiFlutter, description: 'Build artifacts, .dart_tool, and iOS/macOS Pods.', path: 'pubspec.yaml', color: 'text-[#02569B]' },
     { id: 'node', title: 'Node / PNPM', icon: SiNodedotjs, description: 'node_modules, .next, and PNPM global stores.', path: 'package.json', color: 'text-[#339933]' },
     { id: 'rust', title: 'Rust / Cargo', icon: SiRust, description: 'Removes heavy target directories and builds.', path: 'Cargo.toml', color: 'text-orange-500' },
     { id: 'ai', title: 'AI / ML Models', icon: SiHuggingface, description: 'Gigabyte-heavy Hugging Face & Torch models.', path: 'Model Cache', color: 'text-[#FFD21E]' },
-    { id: 'android', title: 'Android / Kotlin', icon: SiKotlin, description: 'Gradle, Maven .m2, and heavy AVD Emulator images.', path: 'AVD / Gradle', color: 'text-[#7F52FF]' },
-    { id: 'python', title: 'Python / Conda', icon: SiPython, description: 'Conda envs, virtualenvs, and pycaches.', path: 'Conda / PIP', color: 'text-[#3776AB]' },
+    { id: 'xcode', title: 'Xcode', icon: SiXcode, description: 'DerivedData build caches from Xcode and Flutter iOS builds.', path: 'DerivedData', color: 'text-[#147EFB]' },
+    { id: 'android', title: 'Android / Kotlin', icon: SiKotlin, description: 'Gradle build folders and AVD emulator images.', path: 'AVD / Gradle', color: 'text-[#7F52FF]' },
+    { id: 'python', title: 'Python / Conda', icon: SiPython, description: 'Conda environments (marked Danger).', path: 'Conda / PIP', color: 'text-[#3776AB]' },
     { id: 'php', title: 'PHP / Laravel', icon: SiPhp, description: 'Vendor, composer caches, and storage logs.', path: 'composer.json', color: 'text-[#777BB4]' },
     { id: 'dotnet', title: '.NET / C#', icon: SiDotnet, description: 'Clears bin/obj folders and NuGet package caches.', path: '*.sln / CS', color: 'text-[#512BD4]' },
     { id: 'unreal', title: 'Unreal Engine', icon: SiUnrealengine, description: 'Massive Intermediate, Saved, and Binaries.', path: '*.uproject', color: 'text-on-surface' },
     { id: 'ruby', title: 'Ruby on Rails', icon: SiRubyonrails, description: 'Targets vendor/bundle and internal tmp caches.', path: 'Gemfile', color: 'text-[#CC0000]' },
     { id: 'unity', title: 'Unity Engine', icon: SiUnity, description: 'Cleans massive Library and Temp project folders.', path: 'ProjectSettings', color: 'text-[#222c37]' },
     { id: 'cpp', title: 'C++ / CMake', icon: SiCplusplus, description: 'Clears build, out, and object directories.', path: 'CMakeLists.txt', color: 'text-[#00599C]' },
-    { id: 'go', title: 'Go / Golang', icon: SiGo, description: 'Removes compiled binaries and module caches.', path: 'go.mod', color: 'text-[#00ADD8]' },
+    { id: 'go', title: 'Go / Golang', icon: SiGo, description: 'Module and build caches arrive in a later update.', path: 'go.mod', color: 'text-[#00ADD8]' },
     { id: 'adobe', title: 'Adobe Caches', icon: HardDrive, description: 'Heavy After Effects & Premiere media caches.', path: 'Adobe Common', color: 'text-[#FF0000]' },
-    { id: 'social', title: 'Comms & Media', icon: SiDiscord, description: 'Telegram, Discord, Slack, and Spotify caches.', path: 'Social Cache', color: 'text-[#5865F2]' },
-    { id: 'os', title: 'Virtualization', icon: SiVagrant, description: 'Vagrant boxes, VirtualBox snapshots, and logs.', path: 'VM / Vagrant', color: 'text-[#1563FF]' },
-    { id: 'docker', title: 'Docker System', icon: SiDocker, description: 'Prunes dangling images and unused volumes.', path: 'Docker Desktop', color: 'text-[#2496ED]' },
+    { id: 'social', title: 'Comms & Media', icon: SiDiscord, description: 'Telegram media, Discord and Spotify caches.', path: 'Social Cache', color: 'text-[#5865F2]' },
+    { id: 'os', title: 'Virtualization', icon: SiVagrant, description: 'Vagrant boxes (marked Danger).', path: 'VM / Vagrant', color: 'text-[#1563FF]' },
+    { id: 'docker', title: 'Docker System', icon: SiDocker, description: 'Docker cleanup via the docker CLI arrives in a later update.', path: 'Docker Desktop', color: 'text-[#2496ED]' },
     { id: 'homebrew', title: 'Homebrew', icon: SiHomebrew, description: 'Clears downloaded bottles and formulae.', path: 'Homebrew Cache', color: 'text-[#FBB040]' },
-    { id: 'os_system', title: 'System Caches', icon: HardDrive, description: 'OS logs, temp files, and browser caches.', path: 'System Cache', color: 'text-red-400', badge: 'Review' },
+    { id: 'os_system', title: 'System Caches', icon: HardDrive, description: 'Per-app folders inside ~/Library/Caches over 10 MB.', path: 'System Cache', color: 'text-red-400', badge: 'Review' },
   ];
 
   const [enabledModules, setEnabledModules] = useState<Set<string>>(new Set(initialModules));

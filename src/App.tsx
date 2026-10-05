@@ -8,7 +8,7 @@ import SettingsView from './views/SettingsView';
 import AboutView from './views/AboutView';
 import { motion, AnimatePresence } from 'motion/react';
 import { Activity, Zap, ShieldCheck } from 'lucide-react';
-import { invoke } from './lib/tauriSimulation';
+import { invoke } from './lib/tauri';
 
 interface SystemInfo {
   os_name: string;
@@ -57,7 +57,6 @@ export default function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('sweep_theme') as any) || 'dark');
   
   const [verboseLogging, setVerboseLogging] = useState(() => localStorage.getItem('sweep_verbose') === 'true');
-  const [autoPurge, setAutoPurge] = useState(() => localStorage.getItem('sweep_auto_purge') === 'true');
 
   useEffect(() => {
     localStorage.setItem('sweep_path', scanPath);
@@ -66,8 +65,8 @@ export default function App() {
     localStorage.setItem('sweep_accent', accent);
     localStorage.setItem('sweep_theme', theme);
     localStorage.setItem('sweep_verbose', String(verboseLogging));
-    localStorage.setItem('sweep_auto_purge', String(autoPurge));
-  }, [scanPath, selectedModules, ignoredPaths, accent, theme, verboseLogging, autoPurge]);
+    localStorage.removeItem('sweep_auto_purge');
+  }, [scanPath, selectedModules, ignoredPaths, accent, theme, verboseLogging]);
 
   useEffect(() => {
     document.documentElement.className = theme;
@@ -126,7 +125,6 @@ export default function App() {
             scanPath={scanPath}
             selectedModules={selectedModules}
             ignoredPaths={ignoredPaths}
-            autoPurge={autoPurge}
             sysInfo={sysInfo}
             onIgnore={handleIgnorePath}
             onStartCleaning={(items: CleanupItem[]) => {
@@ -175,8 +173,6 @@ export default function App() {
             onThemeChange={setTheme}
             verbose={verboseLogging}
             onVerboseChange={setVerboseLogging}
-            autoPurge={autoPurge}
-            onAutoPurgeChange={setAutoPurge}
           />
         );
       case 'about':

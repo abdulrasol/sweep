@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, CheckCircle2, AlertTriangle, Trash2, RefreshCw, EyeOff } from 'lucide-react';
 import { motion } from 'motion/react';
-import { invoke } from '../lib/tauriSimulation';
+import { invoke, formatBytes } from '../lib/tauri';
 
 interface SystemInfo {
   os_name: string;
@@ -17,17 +17,18 @@ interface ReviewViewProps {
   scanPath: string;
   selectedModules: string[];
   ignoredPaths: string[];
-  autoPurge?: boolean;
   sysInfo: SystemInfo | null;
   onIgnore: (path: string) => void;
   onStartCleaning: (items: CleanupItem[]) => void;
 }
 
-export default function ReviewView({ scanPath, selectedModules, ignoredPaths, autoPurge = false, sysInfo, onIgnore, onStartCleaning }: ReviewViewProps) {
+export default function ReviewView({ scanPath, selectedModules, ignoredPaths, sysInfo, onIgnore, onStartCleaning }: ReviewViewProps) {
   const [items, setItems] = useState<CleanupItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [confirmText, setConfirmText] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -38,30 +39,26 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, au
           modules: selectedModules,
           ignoredPaths: ignoredPaths
         });
-        if (data) {
-          setItems(data);
-          const safeItems = data.filter(i => i.status === 'SAFE');
-          const safeIds = new Set(safeItems.map(i => i.id));
-          setSelectedIds(safeIds);
-
-          // AUTO PURGE LOGIC
-          if (autoPurge && safeItems.length > 0) {
-            // Short delay to let user see that things were found before jumping
-            setTimeout(() => {
-               onStartCleaning(safeItems);
-            }, 1500);
-          }
-        }
+        setItems(data);
+        // Pre-select only SAFE items that are not blocked by a running app.
+        setSelectedIds(new Set(data.filter(i => i.status === 'SAFE' && !i.blocked_by).map(i => i.id)));
+        setScanError(null);
       } catch (err) {
         console.error("Scan failed:", err);
+        setScanError(String(err));
       } finally {
         setLoading(false);
       }
     };
     fetchData();
-  }, [scanPath, selectedModules, ignoredPaths, autoPurge]);
+    // ignoredPaths is read at scan time; ignoring an item removes it locally without a rescan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanPath, selectedModules]);
+
+  const selectable = items.filter(i => !i.blocked_by);
 
   const toggleSelect = (id: string) => {
+    if (items.find(i => i.id === id)?.blocked_by) return;
     const newSelected = new Set(selectedIds);
     if (newSelected.has(id)) newSelected.delete(id);
     else newSelected.add(id);
@@ -69,10 +66,10 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, au
   };
 
   const toggleAll = () => {
-    if (selectedIds.size === items.length) {
+    if (selectedIds.size === selectable.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(items.map(i => i.id)));
+      setSelectedIds(new Set(selectable.map(i => i.id)));
     }
   };
 
@@ -81,13 +78,11 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, au
     setItems(prev => prev.filter(item => item.path !== path));
   };
 
-  const totalSize = items.reduce((acc, item) => {
-    if (selectedIds.has(item.id)) {
-      const sizeVal = parseFloat(item.size);
-      return acc + (item.size.includes('GB') ? sizeVal : sizeVal / 1024);
-    }
-    return acc;
-  }, 0);
+  const selectedItems = items.filter(i => selectedIds.has(i.id));
+  const totalBytes = selectedItems.reduce((acc, i) => acc + i.size_bytes, 0);
+  const [totalValue, totalUnit] = formatBytes(totalBytes).split(' ');
+  const needsConfirm = selectedItems.some(i => i.status === 'DANGER');
+  const canStart = selectedItems.length > 0 && (!needsConfirm || confirmText === 'DELETE');
 
   const filteredItems = items.filter(item => 
     item.path.toLowerCase().includes(filter.toLowerCase()) || 
@@ -105,22 +100,6 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, au
 
   return (
     <div className="max-w-6xl mx-auto py-8 px-6 space-y-6">
-      {autoPurge && (
-        <motion.div 
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-primary/10 border border-primary/20 rounded-xl p-4 flex items-center justify-between"
-        >
-          <div className="flex items-center gap-3 text-primary">
-            <RefreshCw className="w-4 h-4 animate-spin" />
-            <span className="text-[10px] font-bold uppercase tracking-widest">Automatic Purge Active: Bypassing Review Step</span>
-          </div>
-          <div className="text-[10px] font-mono text-primary/60">
-            AUTO_INIT_READY
-          </div>
-        </motion.div>
-      )}
-
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-2 bg-surface-container border border-outline rounded-xl p-8 flex flex-col justify-center space-y-6">
           <div className="space-y-2">
@@ -131,8 +110,8 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, au
           </div>
           <div className="flex gap-3">
             <button 
-              onClick={() => onStartCleaning(items.filter(i => selectedIds.has(i.id)))}
-              disabled={selectedIds.size === 0}
+              onClick={() => onStartCleaning(selectedItems)}
+              disabled={!canStart}
               className="px-6 py-2.5 bg-on-surface text-surface rounded-lg font-bold text-[10px] uppercase tracking-[0.1em] hover:brightness-90 active:scale-95 transition-all shadow-sm disabled:opacity-50"
             >
               Start Purge Sequence
@@ -144,6 +123,23 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, au
               Adjust Scope
             </button>
           </div>
+          {needsConfirm && (
+            <div className="space-y-2 p-4 rounded-xl border border-error/30 bg-error/10">
+              <p className="text-xs text-error font-medium">
+                Your selection includes DANGER items that cannot be regenerated automatically. Type DELETE to confirm.
+              </p>
+              <input
+                id="danger-confirm"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder="DELETE"
+                className="w-48 bg-surface-dim border border-error/40 rounded-lg px-3 py-1.5 text-xs font-mono outline-none focus:border-error"
+              />
+            </div>
+          )}
+          {scanError && (
+            <p className="text-xs text-error font-medium">Scan failed: {scanError}</p>
+          )}
         </div>
 
         <div className="bg-surface-bright/50 border border-outline rounded-xl p-8 flex flex-col items-center justify-center text-center space-y-2 relative overflow-hidden group">
@@ -154,18 +150,18 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, au
           <div className="flex flex-col items-center">
             <div className="flex items-baseline gap-2 relative z-10">
               <motion.span 
-                key={totalSize}
+                key={totalBytes}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="text-6xl font-light font-sans tracking-tighter"
               >
-                {totalSize.toFixed(1)}
+                {totalValue}
               </motion.span>
-              <span className="text-xs text-on-surface/40 font-mono">GB</span>
+              <span className="text-xs text-on-surface/40 font-mono">{totalUnit}</span>
             </div>
             {sysInfo && (
               <div className="text-[10px] font-bold text-primary/60 uppercase tracking-widest mt-1">
-                ≈ {((items.reduce((acc, i) => selectedIds.has(i.id) ? acc + i.size_bytes : acc, 0) / sysInfo.disk_total) * 100).toFixed(2)}% of Hard Drive
+                ≈ {((totalBytes / sysInfo.disk_total) * 100).toFixed(2)}% of Hard Drive
               </div>
             )}
           </div>
@@ -180,10 +176,10 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, au
               <div 
                 onClick={toggleAll}
                 className={`w-4 h-4 rounded-md border transition-all flex items-center justify-center
-                  ${selectedIds.size === items.length && items.length > 0 ? 'bg-primary border-primary' : 'border-outline-variant group-hover:border-primary'}
+                  ${selectedIds.size === selectable.length && selectable.length > 0 ? 'bg-primary border-primary' : 'border-outline-variant group-hover:border-primary'}
                 `}
               >
-                {selectedIds.size === items.length && items.length > 0 && <CheckCircle2 className="w-3 h-3 text-on-primary shrink-0" />}
+                {selectedIds.size === selectable.length && selectable.length > 0 && <CheckCircle2 className="w-3 h-3 text-on-primary shrink-0" />}
               </div>
               <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface/60">Select All Items</span>
             </label>
@@ -232,7 +228,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, au
                   <td className="p-4">
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center gap-3">
-                        {(item.status === 'DANGER' || item.status === 'WARNING' || item.status === 'UNSAFE') && (
+                        {item.status === 'DANGER' && (
                           <div className="flex items-center justify-center w-6 h-6 rounded-full bg-error/20 border border-error/30 animate-pulse">
                             <AlertTriangle className="w-3.5 h-3.5 text-error" />
                           </div>
@@ -248,7 +244,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, au
                         ${item.status === 'SAFE' 
                           ? 'bg-surface-dim/50 border-outline/20 text-on-surface/40' 
                           : 'shadow-sm font-medium'}
-                        ${(item.status === 'DANGER' || item.status === 'UNSAFE') 
+                        ${item.status === 'DANGER' 
                           ? 'bg-error/10 border-error/30 text-error' 
                           : ''}
                         ${item.status === 'REVIEW' 
@@ -257,12 +253,17 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, au
                       `}>
                         {item.description}
                       </div>
+                      {item.blocked_by && (
+                        <div className="text-[11px] font-semibold text-error">
+                          Close {item.blocked_by} first. This item stays locked while it is running.
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td className="p-4 text-[10px] font-bold text-on-surface/40 uppercase tracking-tighter">{item.type}</td>
                   <td className="p-4 text-right">
                     <div className="flex flex-col items-end">
-                      <span className="text-xs font-mono font-medium text-on-surface/70">{item.size}</span>
+                      <span className="text-xs font-mono font-medium text-on-surface/70">{formatBytes(item.size_bytes)}</span>
                       {sysInfo && (
                         <span className="text-[9px] font-mono text-on-surface/30">
                           {((item.size_bytes / sysInfo.disk_total) * 100).toFixed(3)}%

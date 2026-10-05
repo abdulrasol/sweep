@@ -8,8 +8,6 @@ interface SettingsViewProps {
   onThemeChange: (theme: 'light' | 'dark') => void;
   verbose: boolean;
   onVerboseChange: (v: boolean) => void;
-  autoPurge: boolean;
-  onAutoPurgeChange: (v: boolean) => void;
 }
 
 export default function SettingsView({ 
@@ -18,9 +16,7 @@ export default function SettingsView({
   theme, 
   onThemeChange,
   verbose,
-  onVerboseChange,
-  autoPurge,
-  onAutoPurgeChange
+  onVerboseChange
 }: SettingsViewProps) {
   const colors = [
     { id: 'emerald', label: 'Emerald', hex: '#10b981', class: 'bg-[#10b981]' },
@@ -116,25 +112,6 @@ export default function SettingsView({
               >
                 <motion.div 
                   animate={{ x: verbose ? 20 : 4 }}
-                  className="absolute top-1 w-3 h-3 bg-white rounded-full shadow-sm" 
-                />
-              </button>
-            </div>
-
-            <div className="h-px bg-outline/50" />
-
-            {/* Automatic Purge */}
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                 <p className="text-sm font-semibold">Automatic Purge</p>
-                 <p className="text-xs text-on-surface/40">Clean detected artifacts automatically after scan.</p>
-              </div>
-              <button 
-                onClick={() => onAutoPurgeChange(!autoPurge)}
-                className={`w-10 h-5 rounded-full relative transition-colors duration-200 ${autoPurge ? 'bg-primary' : 'bg-outline-variant'}`}
-              >
-                <motion.div 
-                  animate={{ x: autoPurge ? 20 : 4 }}
                   className="absolute top-1 w-3 h-3 bg-white rounded-full shadow-sm" 
                 />
               </button>

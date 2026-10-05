@@ -2,7 +2,7 @@ import { Globe, Mail, Github, RefreshCw, CheckCircle2, Zap } from 'lucide-react'
 import { motion } from 'motion/react';
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-shell';
+import { openExternal as open } from '../lib/tauri';
 
 export default function AboutView() {
   const [checking, setChecking] = useState(false);
