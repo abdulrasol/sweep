@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 mod ai_rules;
+mod versions;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -570,6 +571,7 @@ pub fn scan_directory(
 
     let mut candidates = Vec::new();
     collect_global(env, &enabled, &mut candidates);
+    versions::collect(env, &enabled, &mut candidates);
     collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
 
     candidates.retain(|c| !is_ignored(&c.path));
@@ -1569,5 +1571,117 @@ mod tests {
             );
         }
         assert!(home.join(".codex/auth.json").exists());
+    }
+
+    // ----- Old extensions and versions -----------------------------------------
+
+    #[test]
+    fn old_extensions_use_editor_signals_only() {
+        let d = TempDir::new().unwrap();
+        let ext = d.path().join("__home/.antigravity-ide/extensions");
+        for name in [
+            "anthropic.claude-code-2.1.287-darwin-arm64",
+            "anthropic.claude-code-2.1.289-darwin-arm64",
+            "qwenlm.qwen-code-0.24.7",
+            "qwenlm.qwen-code-0.25.0",
+            "dart-code.flutter-3.134.0",
+            "lonely.unlisted-1.0.0",
+        ] {
+            write(&ext.join(name).join("package.json"), 5000);
+        }
+        fs::write(ext.join(".obsolete"), r#"{"qwenlm.qwen-code-0.24.7":true}"#).unwrap();
+        fs::write(
+            ext.join("extensions.json"),
+            r#"[{"relativeLocation":"anthropic.claude-code-2.1.289-darwin-arm64"},
+                {"relativeLocation":"qwenlm.qwen-code-0.25.0"},
+                {"relativeLocation":"dart-code.flutter-3.134.0"}]"#,
+        )
+        .unwrap();
+        let mut ps: Vec<String> = scan(d.path(), &["editors"])
+            .items
+            .iter()
+            .map(|i| i.item.path.rsplit('/').next().unwrap().to_string())
+            .collect();
+        ps.sort();
+        assert_eq!(
+            ps,
+            vec![
+                "anthropic.claude-code-2.1.287-darwin-arm64",
+                "qwenlm.qwen-code-0.24.7"
+            ]
+        );
+    }
+
+    #[test]
+    fn obsolete_but_referenced_extension_is_kept() {
+        let d = TempDir::new().unwrap();
+        let ext = d.path().join("__home/.trae/extensions");
+        write(&ext.join("a.b-1.0.0/x"), 5000);
+        fs::write(ext.join(".obsolete"), r#"{"a.b-1.0.0":true}"#).unwrap();
+        fs::write(
+            ext.join("extensions.json"),
+            r#"[{"relativeLocation":"a.b-1.0.0"}]"#,
+        )
+        .unwrap();
+        assert!(scan(d.path(), &["editors"]).items.is_empty());
+    }
+
+    #[test]
+    fn newest_bundled_version_is_kept() {
+        let (_d, r) = ai_scan(&[
+            (
+                "Library/Application Support/Claude/claude-code/2.1.9/claude",
+                5000,
+            ),
+            (
+                "Library/Application Support/Claude/claude-code/2.1.286/claude",
+                5000,
+            ),
+            (
+                "Library/Application Support/Claude/claude-code-vm/2.1.286/claude",
+                5000,
+            ),
+        ]);
+        let ps = paths(&r);
+        assert_eq!(ps.len(), 1, "{ps:?}");
+        assert!(ps[0].ends_with("claude-code/2.1.9"));
+    }
+
+    #[test]
+    fn antigravity_ide_history_and_browser_cache() {
+        let (_d, r) = ai_scan(&[
+            (".gemini/antigravity-ide/conversations/c1.pb", BIG),
+            (
+                ".gemini/antigravity-browser-profile/Default/Cache/Cache_Data/f",
+                5000,
+            ),
+            (".gemini/antigravity-browser-profile/Default/Cookies", BIG),
+            (
+                ".gemini/antigravity-browser-profile/Default/Login Data",
+                BIG,
+            ),
+            (
+                "Library/Application Support/Claude/local-agent-mode-sessions/s-1/log",
+                BIG,
+            ),
+        ]);
+        assert_eq!(
+            find(&r, "antigravity-ide/conversations")
+                .unwrap()
+                .item
+                .status,
+            Danger
+        );
+        assert_eq!(find(&r, "Default/Cache").unwrap().item.status, Safe);
+        assert_eq!(
+            find(&r, "local-agent-mode-sessions/s-1")
+                .unwrap()
+                .item
+                .status,
+            Danger
+        );
+        assert!(find(&r, "Cookies").is_none());
+        assert!(find(&r, "Login Data").is_none());
+        assert_eq!(r.items.len(), 3);
     }
 }

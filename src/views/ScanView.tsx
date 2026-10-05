@@ -39,6 +39,7 @@ export default function ScanView({ initialPath, initialModules, onInitiate }: Sc
     { id: 'flutter', title: 'Flutter / Dart', icon: SiFlutter, description: 'Build artifacts, .dart_tool, and iOS/macOS Pods.', path: 'pubspec.yaml', color: 'text-[#02569B]' },
     { id: 'node', title: 'Node / PNPM', icon: SiNodedotjs, description: 'node_modules, .next, and PNPM global stores.', path: 'package.json', color: 'text-[#339933]' },
     { id: 'rust', title: 'Rust / Cargo', icon: SiRust, description: 'Removes heavy target directories and builds.', path: 'Cargo.toml', color: 'text-orange-500' },
+    { id: 'editors', title: 'Editor Extensions', icon: Monitor, description: 'Old extension versions in VS Code, Cursor, Antigravity, Trae, Windsurf and Kiro. Only versions the editor no longer loads.', path: '~/.<editor>/extensions', color: 'text-[#0EA5E9]' },
     { id: 'ai_assistants', title: 'AI Assistants', icon: Bot, description: 'Claude, ChatGPT, Codex, Cursor, Antigravity, Gemini, Copilot, Cline and more. Caches are Safe; chat history is Danger.', path: 'AI tools', color: 'text-[#D97757]', badge: 'Review' },
     { id: 'ai', title: 'AI / ML Models', icon: SiHuggingface, description: 'Gigabyte-heavy Hugging Face & Torch models.', path: 'Model Cache', color: 'text-[#FFD21E]' },
     { id: 'xcode', title: 'Xcode', icon: SiXcode, description: 'DerivedData build caches from Xcode and Flutter iOS builds.', path: 'DerivedData', color: 'text-[#147EFB]' },

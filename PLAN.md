@@ -546,6 +546,14 @@ for e in WalkDir::new(p).follow_links(false) {
 
 **مستبعدة:** مجلد `~/.kimi-work/bin` هو برنامج Kimi نفسه مو كاش (محمي)، ومجلد BoltAI فارغ.
 
+**إضافات بعد فحص جهاز المستخدم (2026-10-05):**
+
+- محادثات `.gemini/antigravity-ide/conversations` (1.7 GB): DANGER.
+- كاش متصفح Antigravity: SAFE. الكوكيز وبيانات الدخول محمية.
+- جلسات وضع الوكيل بـ Claude (`local-agent-mode-sessions`): DANGER، كل جلسة بسطر.
+- النسخ القديمة من Claude Code داخل Claude Desktop و `~/.local/share/claude/versions`: SAFE، وتبقى أحدث نسخة دائماً.
+- وحدة جديدة **Editor Extensions** (تنفّذ جزء من المهمة 2.11): تمسح بس النسخ اللي المحرر نفسه علّمها بملف `.obsolete`، أو النسخ القديمة اللي حلت محلها نسخة أحدث مسجلة بـ `extensions.json`. أي إضافة مسجلة كمثبتة ما تنمسح أبداً.
+
 **غير مغطاة بعد (ما عندنا توثيق موثوق لمساراتها):** CodeGeeX و Comate و ZCode و Kombai و Hermes و cagent.
 
 **الملفات:** `src-tauri/src/cleanup_engine/ai_rules.rs, cleanup_engine.rs, ScanView.tsx`
