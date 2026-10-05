@@ -116,7 +116,7 @@ export default function Sidebar({ activeView, onViewChange, sysInfo }: SidebarPr
                   <span>Disk</span>
                 </div>
                 <span className="text-on-surface/80 font-bold">
-                  {sysInfo ? `${(sysInfo.disk_free / 1024 / 1024 / 1024).toFixed(0)}GB` : '--'}
+                  {sysInfo ? `${(sysInfo.disk_free / 1e9).toFixed(1)} GB free` : '--'}
                 </span>
               </div>
               <div className="w-full bg-surface-dim h-1 rounded-full overflow-hidden">

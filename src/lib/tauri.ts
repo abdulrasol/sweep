@@ -10,13 +10,13 @@ export const invoke = async <T = unknown>(cmd: string, args?: Record<string, unk
   }
 };
 
-/** Format a byte count for display. The engine always sends raw bytes. */
+/** Format a byte count for display, in decimal units like Finder (1 GB = 1000 MB). */
 export const formatBytes = (bytes: number): string => {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let value = bytes;
   let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
     unit++;
   }
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
