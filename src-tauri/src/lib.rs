@@ -142,11 +142,19 @@ fn reveal_item(store: State<'_, Mutex<ScanStore>>, id: String) -> Result<(), Str
         .map_err(|e| format!("Could not show the item: {e}"))
 }
 
-/// Open an https link in the default browser. Replaces the shell plugin (PLAN 0.6).
+/// Only web and email links may leave the app; never file:// or app URL schemes.
+fn is_allowed_external(url: &str) -> bool {
+    let scheme_ok = url.starts_with("https://") || url.starts_with("mailto:");
+    scheme_ok
+        && url.len() > "mailto:".len()
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
+/// Open an https or mailto link with the default app. Replaces the shell plugin (PLAN 0.6).
 #[tauri::command]
 fn open_external(url: String) -> Result<(), String> {
-    if !url.starts_with("https://") || url.chars().any(char::is_whitespace) {
-        return Err("Only https links can be opened.".to_string());
+    if !is_allowed_external(&url) {
+        return Err("Only https and email links can be opened.".to_string());
     }
     let opener = if cfg!(target_os = "macos") {
         "open"
@@ -249,5 +257,21 @@ pub fn run() {
     match app {
         Ok(app) => app.run(|_, _| {}),
         Err(e) => eprintln!("Sweep failed to start: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_allowed_external;
+
+    #[test]
+    fn external_links() {
+        assert!(is_allowed_external("https://github.com/abdulrasol"));
+        assert!(is_allowed_external("mailto:abdulrsol97@gmail.com"));
+        assert!(!is_allowed_external("file:///etc/passwd"));
+        assert!(!is_allowed_external("x-apple.systempreferences:com.apple"));
+        assert!(!is_allowed_external("http://example.com"));
+        assert!(!is_allowed_external("https://a.com/ -a Calculator"));
+        assert!(!is_allowed_external("mailto:"));
     }
 }
