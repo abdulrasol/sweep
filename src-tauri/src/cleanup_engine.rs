@@ -298,6 +298,57 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         &["Xcode"],
     ),
     g(
+        "xcode",
+        "Xcode Previews",
+        "Library/Developer/Xcode/UserData/Previews",
+        "Build Cache",
+        Safe,
+        &["Xcode"],
+    ),
+    g(
+        "xcode",
+        "Xcode Documentation Cache",
+        "Library/Developer/Xcode/DocumentationCache",
+        "Build Cache",
+        Safe,
+        &["Xcode"],
+    ),
+    g(
+        "xcode",
+        "Xcode Cache",
+        "Library/Caches/com.apple.dt.Xcode",
+        "Build Cache",
+        Safe,
+        &["Xcode"],
+    ),
+    g(
+        "xcode",
+        "Simulator Caches",
+        "Library/Developer/CoreSimulator/Caches",
+        "Simulator Cache",
+        Safe,
+        &["Simulator"],
+    ),
+    g(
+        "xcode",
+        "Simulator Logs",
+        "Library/Logs/CoreSimulator",
+        "Simulator Cache",
+        Safe,
+        &["Simulator"],
+    ),
+    GlobalRule {
+        module: "xcode",
+        label: "Xcode Archive",
+        home_rel: "Library/Developer/Xcode/Archives",
+        category: "Archives",
+        safety: Review,
+        blocked_if_running: &["Xcode"],
+        split_children: true,
+        note: "Xcode archives from one day. They hold the dSYM files you need to read crash reports for builds you shipped. Keep the ones for versions still in users' hands.",
+        min_bytes: 1,
+    },
+    g(
         "android",
         "Android AVD Images",
         ".android/avd",
@@ -1701,5 +1752,50 @@ mod tests {
         assert!(find(&r, "Cookies").is_none());
         assert!(find(&r, "Login Data").is_none());
         assert_eq!(r.items.len(), 3);
+    }
+
+    // ----- Xcode (PLAN 2.1) ------------------------------------------------------
+
+    #[test]
+    fn xcode_device_support_keeps_two_newest() {
+        let d = TempDir::new().unwrap();
+        let ds = d
+            .path()
+            .join("__home/Library/Developer/Xcode/iOS DeviceSupport");
+        for v in [
+            "iPhone15,2 17.5 (21F79)",
+            "iPhone15,2 18.1 (22B83)",
+            "16.4.1 (20E252)",
+            "iPhone16,1 18.6 (22G86)",
+        ] {
+            write(&ds.join(v).join("Symbols/x"), 5000);
+        }
+        let r = scan(d.path(), &["xcode"]);
+        let mut names: Vec<String> = r
+            .items
+            .iter()
+            .map(|i| i.item.path.rsplit('/').next().unwrap().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["16.4.1 (20E252)", "iPhone15,2 17.5 (21F79)"]);
+        assert!(r.items.iter().all(|i| i.item.status == Safe));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn xcode_archives_and_simulator_caches() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(
+            &home.join("Library/Developer/Xcode/Archives/2026-10-01/App.xcarchive/dSYMs/a"),
+            5000,
+        );
+        write(
+            &home.join("Library/Developer/CoreSimulator/Caches/dyld/x"),
+            5000,
+        );
+        let r = scan(d.path(), &["xcode"]);
+        assert_eq!(find(&r, "Archives/2026-10-01").unwrap().item.status, Review);
+        assert_eq!(find(&r, "CoreSimulator/Caches").unwrap().item.status, Safe);
     }
 }

@@ -34,19 +34,92 @@ const EXTENSION_DIRS: &[(&str, &str, &[&str])] = &[
     (".kiro/extensions", "Kiro", &["Kiro"]),
 ];
 
-/// (folder relative to home whose children are version numbers, label, process names)
-const VERSIONED_DIRS: &[(&str, &str, &[&str])] = &[
-    (
-        "Library/Application Support/Claude/claude-code",
-        "Claude Code (bundled)",
-        &["Claude"],
-    ),
-    (
-        "Library/Application Support/Claude/claude-code-vm",
-        "Claude Code VM (bundled)",
-        &["Claude"],
-    ),
-    (".local/share/claude/versions", "Claude Code", &["claude"]),
+/// A folder whose children are versions of the same thing; the newest `keep` stay.
+struct VersionedDir {
+    module: &'static str,
+    group: &'static str,
+    home_rel: &'static str,
+    label: &'static str,
+    category: &'static str,
+    keep: usize,
+    blocked_if_running: &'static [&'static str],
+    description: &'static str,
+}
+
+const VERSIONED_DIRS: &[VersionedDir] = &[
+    VersionedDir {
+        module: "ai_assistants",
+        group: "AI Tools",
+        home_rel: "Library/Application Support/Claude/claude-code",
+        label: "Claude Code (bundled)",
+        category: "Old App Version",
+        keep: 1,
+        blocked_if_running: &["Claude"],
+        description: "An older copy of Claude Code bundled with Claude Desktop. The newest copy is kept.",
+    },
+    VersionedDir {
+        module: "ai_assistants",
+        group: "AI Tools",
+        home_rel: "Library/Application Support/Claude/claude-code-vm",
+        label: "Claude Code VM (bundled)",
+        category: "Old App Version",
+        keep: 1,
+        blocked_if_running: &["Claude"],
+        description: "An older copy of Claude Code for the agent VM. The newest copy is kept.",
+    },
+    VersionedDir {
+        module: "ai_assistants",
+        group: "AI Tools",
+        home_rel: ".local/share/claude/versions",
+        label: "Claude Code",
+        category: "Old App Version",
+        keep: 1,
+        blocked_if_running: &["claude"],
+        description: "An older Claude Code binary left by an update. The newest is kept.",
+    },
+    // Xcode copies debug symbols for every OS version a device was connected with
+    // (PLAN 2.1). Keep the two newest per platform; older ones come back if a device
+    // on that version is connected again.
+    VersionedDir {
+        module: "xcode",
+        group: "Dev Tools",
+        home_rel: "Library/Developer/Xcode/iOS DeviceSupport",
+        label: "iOS Device Support",
+        category: "Device Support",
+        keep: 2,
+        blocked_if_running: &["Xcode"],
+        description: "Debug symbols for an older iOS version. Xcode copies them again if you connect a device running this version.",
+    },
+    VersionedDir {
+        module: "xcode",
+        group: "Dev Tools",
+        home_rel: "Library/Developer/Xcode/watchOS DeviceSupport",
+        label: "watchOS Device Support",
+        category: "Device Support",
+        keep: 2,
+        blocked_if_running: &["Xcode"],
+        description: "Debug symbols for an older watchOS version. Xcode copies them again when needed.",
+    },
+    VersionedDir {
+        module: "xcode",
+        group: "Dev Tools",
+        home_rel: "Library/Developer/Xcode/tvOS DeviceSupport",
+        label: "tvOS Device Support",
+        category: "Device Support",
+        keep: 2,
+        blocked_if_running: &["Xcode"],
+        description: "Debug symbols for an older tvOS version. Xcode copies them again when needed.",
+    },
+    VersionedDir {
+        module: "xcode",
+        group: "Dev Tools",
+        home_rel: "Library/Developer/Xcode/visionOS DeviceSupport",
+        label: "visionOS Device Support",
+        category: "Device Support",
+        keep: 2,
+        blocked_if_running: &["Xcode"],
+        description: "Debug symbols for an older visionOS version. Xcode copies them again when needed.",
+    },
 ];
 
 pub(super) fn collect(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) {
@@ -67,21 +140,19 @@ pub(super) fn collect(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidat
             }
         }
     }
-    if enabled.contains("ai_assistants") {
-        for (rel, label, procs) in VERSIONED_DIRS {
-            for path in superseded_versions(&env.home.join(rel)) {
-                out.push(Candidate {
-                    path,
-                    file_type: label.to_string(),
-                    category: "Old App Version".to_string(),
-                    group: "AI Tools",
-                    safety: Safety::Safe,
-                    description: format!("An older copy of {label}. A newer version is installed next to it and is kept."),
-                    blocked_if_running: procs.to_vec(),
-                    project_root: None,
-                    min_bytes: 1,
-                });
-            }
+    for dir in VERSIONED_DIRS.iter().filter(|d| enabled.contains(d.module)) {
+        for path in superseded_versions(&env.home.join(dir.home_rel), dir.keep) {
+            out.push(Candidate {
+                path,
+                file_type: dir.label.to_string(),
+                category: dir.category.to_string(),
+                group: dir.group,
+                safety: Safety::Safe,
+                description: dir.description.to_string(),
+                blocked_if_running: dir.blocked_if_running.to_vec(),
+                project_root: None,
+                min_bytes: 1,
+            });
         }
     }
 }
@@ -154,25 +225,31 @@ fn old_extensions(dir: &Path) -> Vec<(PathBuf, &'static str)> {
         .collect()
 }
 
+/// First dotted number in a folder name: "iPhone15,2 18.1 (22B83)" -> [18, 1],
+/// "16.4.1 (20E252)" -> [16, 4, 1], "2.1.286" -> [2, 1, 286].
 fn parse_version(s: &str) -> Option<Vec<u64>> {
-    let parts: Option<Vec<u64>> = s.split('.').map(|p| p.parse().ok()).collect();
-    parts.filter(|p| !p.is_empty())
+    s.split(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .filter(|tok| tok.contains('.'))
+        .find_map(|tok| {
+            let parts: Option<Vec<u64>> = tok.split('.').map(|p| p.parse().ok()).collect();
+            parts.filter(|p| p.len() >= 2)
+        })
 }
 
-fn superseded_versions(dir: &Path) -> Vec<PathBuf> {
+fn superseded_versions(dir: &Path, keep: usize) -> Vec<PathBuf> {
     let Ok(rd) = fs::read_dir(dir) else {
         return Vec::new();
     };
     let mut versions: Vec<(Vec<u64>, PathBuf)> = rd
         .flatten()
-        .filter(|e| e.file_type().map(|t| !t.is_symlink()).unwrap_or(false))
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
         .filter_map(|e| parse_version(&e.file_name().to_string_lossy()).map(|v| (v, e.path())))
         .collect();
-    if versions.len() < 2 {
+    if versions.len() <= keep {
         return Vec::new();
     }
     versions.sort();
-    versions.pop(); // keep the newest
+    versions.truncate(versions.len() - keep); // drop the newest `keep` from the list
     versions.into_iter().map(|(_, p)| p).collect()
 }
 
@@ -202,5 +279,7 @@ mod tests {
         assert!(parse_version("2.1.289") > parse_version("2.1.287"));
         assert!(parse_version("2.1.10") > parse_version("2.1.9"));
         assert_eq!(parse_version("latest"), None);
+        assert_eq!(parse_version("iPhone15,2 18.1 (22B83)"), Some(vec![18, 1]));
+        assert_eq!(parse_version("16.4.1 (20E252)"), Some(vec![16, 4, 1]));
     }
 }
