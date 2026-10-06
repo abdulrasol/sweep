@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 mod ai_rules;
+mod simulators;
 mod versions;
 
 // ---------------------------------------------------------------------------
@@ -69,6 +70,17 @@ pub struct ScannedItem {
     pub item: CleanupItem,
     pub canonical: PathBuf,
     pub blocked_if_running: Vec<&'static str>,
+    pub action: Action,
+}
+
+/// How an item is removed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    /// Delete `item.path` after the safety checks in `delete_path`.
+    DeletePath,
+    /// Run an official tool instead (PLAN 3.3). Only commands accepted by
+    /// `simulators::is_allowed_command` ever run.
+    Command(Vec<String>),
 }
 
 #[derive(Debug, Default)]
@@ -610,6 +622,9 @@ struct Candidate {
     project_root: Option<PathBuf>,
     min_bytes: u64,
     group: &'static str,
+    action: Action,
+    /// Size reported by the tool that owns the item; skips walking `path`.
+    known_size: Option<u64>,
 }
 
 pub fn scan_directory(
@@ -626,6 +641,7 @@ pub fn scan_directory(
     let mut candidates = Vec::new();
     collect_global(env, &enabled, &mut candidates);
     versions::collect(env, &enabled, &mut candidates);
+    simulators::collect(env, &enabled, &mut candidates);
     collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
 
     candidates.retain(|c| !is_ignored(&c.path));
@@ -635,7 +651,7 @@ pub fn scan_directory(
     let mut items: Vec<ScannedItem> = candidates
         .into_par_iter()
         .filter_map(|mut c| {
-            let size = disk_usage(&c.path);
+            let size = c.known_size.unwrap_or_else(|| disk_usage(&c.path));
             if size == 0 {
                 return None;
             }
@@ -645,7 +661,10 @@ pub fn scan_directory(
             if size < c.min_bytes {
                 return None;
             }
-            let canonical = fs::canonicalize(&c.path).ok()?;
+            let canonical = match c.action {
+                Action::DeletePath => fs::canonicalize(&c.path).ok()?,
+                Action::Command(_) => c.path.clone(),
+            };
             let path_str = c.path.to_string_lossy().into_owned();
             let blocked_by = c
                 .blocked_if_running
@@ -666,6 +685,7 @@ pub fn scan_directory(
                 },
                 canonical,
                 blocked_if_running: c.blocked_if_running,
+                action: c.action,
             })
         })
         .collect();
@@ -728,6 +748,8 @@ fn collect_global(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) 
                         description,
                         blocked_if_running: rule.blocked_if_running.to_vec(),
                         project_root: None,
+                        action: Action::DeletePath,
+                        known_size: None,
                         min_bytes: rule.min_bytes,
                         group: module_group(rule.module),
                     });
@@ -752,6 +774,8 @@ fn collect_global(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) 
                     },
                     blocked_if_running: rule.blocked_if_running.to_vec(),
                     project_root: None,
+                    action: Action::DeletePath,
+                    known_size: None,
                     min_bytes: rule.min_bytes,
                     group: module_group(rule.module),
                 });
@@ -826,6 +850,8 @@ fn collect_projects(
                         ),
                         blocked_if_running: rule.blocked_if_running.to_vec(),
                         project_root: Some(dir.to_path_buf()),
+                        action: Action::DeletePath,
+                        known_size: None,
                         min_bytes: 1,
                         group: "Projects",
                     });
@@ -1103,6 +1129,18 @@ pub fn delete_path(
     }
 }
 
+/// Remove one scanned item: delete its path or run its official command.
+pub fn execute(
+    item: &ScannedItem,
+    allowed_roots: &[PathBuf],
+    protected: &[PathBuf],
+) -> Result<(), String> {
+    match &item.action {
+        Action::DeletePath => delete_path(item, allowed_roots, protected),
+        Action::Command(args) => simulators::run_command(args),
+    }
+}
+
 /// Lower-cased names of running processes.
 pub fn running_process_names() -> HashSet<String> {
     use sysinfo::{ProcessRefreshKind, RefreshKind, System};
@@ -1363,6 +1401,7 @@ mod tests {
             },
             canonical: fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
             blocked_if_running: vec![],
+            action: Action::DeletePath,
         }
     }
 

@@ -135,6 +135,8 @@ pub(super) fn collect(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidat
                     description: format!("{reason} {editor} does not load it."),
                     blocked_if_running: procs.to_vec(),
                     project_root: None,
+                    action: super::Action::DeletePath,
+                    known_size: None,
                     min_bytes: 1,
                 });
             }
@@ -151,6 +153,8 @@ pub(super) fn collect(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidat
                 description: dir.description.to_string(),
                 blocked_if_running: dir.blocked_if_running.to_vec(),
                 project_root: None,
+                action: super::Action::DeletePath,
+                known_size: None,
                 min_bytes: 1,
             });
         }

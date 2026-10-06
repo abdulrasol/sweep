@@ -79,7 +79,7 @@ async fn cleanup_item(store: State<'_, Mutex<ScanStore>>, id: String) -> Result<
         }
         let home = dirs::home_dir().ok_or("Cannot find your home folder.")?;
         let protected = cleanup_engine::protected_paths(&home);
-        cleanup_engine::delete_path(&item_for_task, &roots, &protected)
+        cleanup_engine::execute(&item_for_task, &roots, &protected)
     })
     .await
     .map_err(|e| format!("Cleanup failed: {e}"))??;
