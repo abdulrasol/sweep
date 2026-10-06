@@ -101,6 +101,11 @@ cargo tauri build
 - **Windows**: `src-tauri/target/release/bundle/msi/`
 - **Linux**: `src-tauri/target/release/bundle/deb/`
 
+> **Note for macOS Users:** If you download a pre-compiled Release and macOS warns you that the app is "damaged and can't be opened" or from an "unidentified developer", you can bypass Gatekeeper by moving the app to your Applications folder and running the following command in your terminal:
+> ```bash
+> xattr -cr /Applications/Sweep.app
+> ```
+
 ---
 
 ## 📜 License & Credits
