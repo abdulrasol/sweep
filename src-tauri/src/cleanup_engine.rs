@@ -20,6 +20,7 @@ mod ai_rules;
 mod android;
 mod dart;
 mod native_commands;
+mod node;
 mod simulators;
 mod versions;
 
@@ -478,12 +479,70 @@ static GLOBAL_RULES: &[GlobalRule] = &[
     ),
     g(
         "node",
-        "PNPM Store",
-        "Library/pnpm/store",
-        "Global Package Store",
+        "Yarn Cache",
+        "Library/Caches/Yarn",
+        "Package Cache",
         Safe,
         &[],
     ),
+    g(
+        "node",
+        "Yarn Berry Cache",
+        ".yarn/berry/cache",
+        "Package Cache",
+        Safe,
+        &[],
+    ),
+    g(
+        "node",
+        "Bun Cache",
+        ".bun/install/cache",
+        "Package Cache",
+        Safe,
+        &[],
+    ),
+    g("node", "npx Cache", ".npm/_npx", "Package Cache", Safe, &[]),
+    g(
+        "node",
+        "Electron Downloads",
+        "Library/Caches/electron",
+        "Download Cache",
+        Safe,
+        &[],
+    ),
+    GlobalRule {
+        module: "node",
+        label: "Playwright Browsers",
+        home_rel: "Library/Caches/ms-playwright",
+        category: "Test Browsers",
+        safety: Review,
+        blocked_if_running: &[],
+        split_children: false,
+        note: "Browsers downloaded by Playwright for tests. Run npx playwright install again to get them back (several hundred MB each).",
+        min_bytes: 1,
+    },
+    GlobalRule {
+        module: "node",
+        label: "Cypress Binaries",
+        home_rel: "Library/Caches/Cypress",
+        category: "Test Browsers",
+        safety: Review,
+        blocked_if_running: &["Cypress"],
+        split_children: false,
+        note: "Cypress app versions. The next npm install of a project that uses Cypress downloads its version again.",
+        min_bytes: 1,
+    },
+    GlobalRule {
+        module: "node",
+        label: "Puppeteer Browsers",
+        home_rel: ".cache/puppeteer",
+        category: "Test Browsers",
+        safety: Review,
+        blocked_if_running: &[],
+        split_children: false,
+        note: "Browsers downloaded by Puppeteer. The next npm install of a project that uses Puppeteer downloads them again.",
+        min_bytes: 1,
+    },
     g(
         "python",
         "Conda Environments",
@@ -575,14 +634,6 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         &[],
     ),
     g(
-        "node",
-        "PNPM Store",
-        "AppData/Local/pnpm/store",
-        "Global Package Store",
-        Safe,
-        &[],
-    ),
-    g(
         "dotnet",
         "NuGet Cache",
         ".nuget/packages",
@@ -671,12 +722,70 @@ static GLOBAL_RULES: &[GlobalRule] = &[
     ),
     g(
         "node",
-        "PNPM Store",
-        ".local/share/pnpm/store",
-        "Global Package Store",
+        "Yarn Cache",
+        ".cache/yarn",
+        "Package Cache",
         Safe,
         &[],
     ),
+    g(
+        "node",
+        "Yarn Berry Cache",
+        ".yarn/berry/cache",
+        "Package Cache",
+        Safe,
+        &[],
+    ),
+    g(
+        "node",
+        "Bun Cache",
+        ".bun/install/cache",
+        "Package Cache",
+        Safe,
+        &[],
+    ),
+    g("node", "npx Cache", ".npm/_npx", "Package Cache", Safe, &[]),
+    g(
+        "node",
+        "Electron Downloads",
+        ".cache/electron",
+        "Download Cache",
+        Safe,
+        &[],
+    ),
+    GlobalRule {
+        module: "node",
+        label: "Playwright Browsers",
+        home_rel: ".cache/ms-playwright",
+        category: "Test Browsers",
+        safety: Review,
+        blocked_if_running: &[],
+        split_children: false,
+        note: "Browsers downloaded by Playwright for tests. Run npx playwright install again to get them back (several hundred MB each).",
+        min_bytes: 1,
+    },
+    GlobalRule {
+        module: "node",
+        label: "Cypress Binaries",
+        home_rel: ".cache/Cypress",
+        category: "Test Browsers",
+        safety: Review,
+        blocked_if_running: &["Cypress"],
+        split_children: false,
+        note: "Cypress app versions. The next npm install of a project that uses Cypress downloads its version again.",
+        min_bytes: 1,
+    },
+    GlobalRule {
+        module: "node",
+        label: "Puppeteer Browsers",
+        home_rel: ".cache/puppeteer",
+        category: "Test Browsers",
+        safety: Review,
+        blocked_if_running: &[],
+        split_children: false,
+        note: "Browsers downloaded by Puppeteer. The next npm install of a project that uses Puppeteer downloads them again.",
+        min_bytes: 1,
+    },
     g(
         "python",
         "Conda Environments",
@@ -753,6 +862,7 @@ pub fn scan_directory(
     simulators::collect(env, &enabled, &mut candidates);
     dart::collect(env, &enabled, &mut candidates);
     android::collect(env, &enabled, &mut candidates);
+    node::collect(env, &enabled, &mut candidates);
     collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
 
     candidates.retain(|c| !is_ignored(&c.path));
@@ -1260,14 +1370,19 @@ pub fn delete_path(
 }
 
 /// Remove one scanned item: delete its path or run its official command.
+/// Returns the bytes freed: the scanned size, unless the command measured it.
 pub fn execute(
     item: &ScannedItem,
     allowed_roots: &[PathBuf],
     protected: &[PathBuf],
-) -> Result<(), String> {
+) -> Result<u64, String> {
     match &item.action {
-        Action::DeletePath => delete_path(item, allowed_roots, protected),
-        Action::Command(cmd) => native_commands::run(cmd),
+        Action::DeletePath => {
+            delete_path(item, allowed_roots, protected).map(|()| item.item.size_bytes)
+        }
+        Action::Command(cmd) => {
+            native_commands::run(cmd).map(|freed| freed.unwrap_or(item.item.size_bytes))
+        }
     }
 }
 
@@ -2042,6 +2157,43 @@ mod tests {
         assert_eq!(find(&r, ".gradle/daemon").unwrap().item.status, Safe);
         assert!(find(&r, "gradle.properties").is_none());
         assert!(find(&r, "__home/.gradle").is_none());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn node_global_caches_are_listed_separately() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let big = 11 * 1024 * 1024;
+        write(&home.join(".npm/_cacache/index-v5/a"), 5000);
+        write(&home.join(".npm/_npx/1234/package.json"), 5000);
+        write(&home.join("Library/Caches/Yarn/v6/pkg"), big);
+        write(&home.join(".bun/install/cache/pkg"), 5000);
+        write(
+            &home.join("Library/Caches/ms-playwright/chromium-1194/chrome"),
+            5000,
+        );
+        // Negative: npm settings and logs stay.
+        write(&home.join(".npmrc"), 100);
+        write(&home.join(".npm/_logs/debug.log"), 100);
+
+        let r = scan(d.path(), &["node", "os_system"]);
+        for (suffix, level) in [
+            (".npm/_cacache", Safe),
+            (".npm/_npx", Safe),
+            ("Library/Caches/Yarn", Safe),
+            (".bun/install/cache", Safe),
+            ("Library/Caches/ms-playwright", Review),
+        ] {
+            assert_eq!(find(&r, suffix).unwrap().item.status, level, "{suffix}");
+        }
+        assert_eq!(
+            find(&r, "Library/Caches/Yarn").unwrap().item.file_type,
+            "Yarn Cache"
+        );
+        assert!(find(&r, ".npmrc").is_none());
+        assert!(find(&r, "_logs").is_none());
+        assert!(find(&r, "__home/.npm").is_none());
     }
 
     #[cfg(target_os = "macos")]

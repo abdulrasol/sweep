@@ -20,7 +20,7 @@ pub(super) fn collect(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidat
     if !super::is_real_dir(&cache) {
         return;
     }
-    if let Some(dart) = native_commands::find_dart(&env.home) {
+    if let Some(dart) = native_commands::find_tool(&env.home, "dart") {
         out.push(pub_cache_candidate(cache, dart));
     }
 }

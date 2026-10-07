@@ -415,8 +415,9 @@ for e in WalkDir::new(p).follow_links(false) {
 - pnpm: `pnpm store prune` يحذف الحزم غير المستخدمة بس، وهذا أفضل من مسح الـ store كله.
 - إصدارات Node القديمة بـ `~/.nvm/versions/node` و fnm و volta: REVIEW.
 - `~/Library/Caches/ms-playwright` و `~/Library/Caches/Cypress` و `~/Library/Caches/electron` و `~/.cache/puppeteer`.
+- عند التنفيذ: npm و pnpm يتشغلون مع PATH كامل (Homebrew و Volta و nvm و fnm)، لأن التطبيق المفتوح من Finder ما يلگى `node`. ومجلد الكاش يتثبّت بإعداد الأداة نفسها (`npm_config_cache` و `--store-dir`). إذا pnpm مو موجود، الـ store كله ينعرض بحالة REVIEW. وبعد `pnpm store prune` يُحسب الحجم المحرر الفعلي، مو حجم الـ store كله. إصدار Node الافتراضي لكل مدير يبقى دائماً، وإذا ما گدرنا نحل alias مالت nvm ما نعرض أي إصدار من nvm.
 
-**الملفات:** `rules, native_commands.rs`
+**الملفات:** `rules, native_commands.rs, node.rs`
 
 **متى نعتبرها خلصت:** كل كاش يطلع منفصل، و pnpm يتنظف بالأمر الرسمي.
 

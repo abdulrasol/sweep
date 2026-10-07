@@ -74,7 +74,6 @@ async fn cleanup_item(store: State<'_, Mutex<ScanStore>>, id: String) -> Result<
         (item, guard.allowed_roots.clone(), guard.generation)
     };
 
-    let freed = item.item.size_bytes;
     let item_for_task = item.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let running = cleanup_engine::running_process_names();
@@ -89,15 +88,17 @@ async fn cleanup_item(store: State<'_, Mutex<ScanStore>>, id: String) -> Result<
     .map_err(|e| format!("Cleanup failed: {e}"))
     .and_then(|r| r);
 
-    if let Err(err) = result {
-        // Give the item back so the user can retry, unless a newer scan replaced the store.
-        let mut guard = store.lock().map_err(lock_err)?;
-        if guard.generation == generation {
-            guard.items.insert(id, item);
+    match result {
+        Ok(freed) => Ok(freed),
+        Err(err) => {
+            // Give the item back so the user can retry, unless a newer scan replaced the store.
+            let mut guard = store.lock().map_err(lock_err)?;
+            if guard.generation == generation {
+                guard.items.insert(id, item);
+            }
+            Err(err)
         }
-        return Err(err);
     }
-    Ok(freed)
 }
 
 #[tauri::command]

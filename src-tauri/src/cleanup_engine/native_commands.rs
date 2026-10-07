@@ -1,10 +1,11 @@
 //! Official cleanup commands Sweep runs instead of deleting files itself (PLAN 3.3).
 //!
 //! Every command is a variant of [`NativeCommand`] with fixed arguments, run with
-//! `std::process::Command` and never through a shell. The program path is checked
-//! again right before it runs.
+//! `std::process::Command` and never through a shell. The program path and the
+//! folder it acts on are checked again right before it runs, and the folder is
+//! pinned through the tool's own setting so it cleans exactly what the scan showed.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -12,37 +13,94 @@ use std::process::Command;
 pub enum NativeCommand {
     /// `xcrun <args>`, limited to the `simctl` calls in `simulators::is_allowed_command`.
     Xcrun(Vec<String>),
-    /// `<dart> pub cache clean -f`, with `PUB_CACHE` pinned to the folder the scan showed.
+    /// `dart pub cache clean -f` with `PUB_CACHE=<cache>`.
     DartPubCacheClean { dart: PathBuf, cache: PathBuf },
+    /// `npm cache clean --force` with `npm_config_cache=<cache>` (the `~/.npm` folder).
+    NpmCacheClean { npm: PathBuf, cache: PathBuf },
+    /// `pnpm store prune --store-dir <store>`: removes only packages no project uses.
+    PnpmStorePrune { pnpm: PathBuf, store: PathBuf },
 }
 
-pub(super) fn run(cmd: &NativeCommand) -> Result<(), String> {
+/// Run the command. Returns the bytes freed when the command measures them itself.
+pub(super) fn run(cmd: &NativeCommand) -> Result<Option<u64>, String> {
     match cmd {
-        NativeCommand::Xcrun(args) => super::simulators::run_command(args),
-        NativeCommand::DartPubCacheClean { dart, cache } => run_pub_cache_clean(dart, cache),
+        NativeCommand::Xcrun(args) => super::simulators::run_command(args).map(|()| None),
+        NativeCommand::DartPubCacheClean { dart, cache } => {
+            check(dart, "dart", cache, ".pub-cache")?;
+            output(
+                "dart pub cache clean",
+                Command::new(dart)
+                    .args(["pub", "cache", "clean", "-f"])
+                    .env("PUB_CACHE", cache),
+            )
+            .map(|()| None)
+        }
+        NativeCommand::NpmCacheClean { npm, cache } => {
+            check(npm, "npm", cache, ".npm")?;
+            output(
+                "npm cache clean",
+                Command::new(npm)
+                    .args(["cache", "clean", "--force"])
+                    .env("npm_config_cache", cache)
+                    .env("PATH", child_path(npm)),
+            )
+            .map(|()| None)
+        }
+        NativeCommand::PnpmStorePrune { pnpm, store } => {
+            check(pnpm, "pnpm", store, "store")?;
+            let before = super::disk_usage(store);
+            output(
+                "pnpm store prune",
+                Command::new(pnpm)
+                    .args(["store", "prune", "--store-dir"])
+                    .arg(store)
+                    .env("PATH", child_path(pnpm)),
+            )?;
+            Ok(Some(before.saturating_sub(super::disk_usage(store))))
+        }
     }
 }
 
-fn run_pub_cache_clean(dart: &Path, cache: &Path) -> Result<(), String> {
-    if !is_tool(dart, "dart") {
-        return Err("Sweep refused to run an unexpected program as dart.".to_string());
+fn check(program: &Path, name: &str, folder: &Path, folder_name: &str) -> Result<(), String> {
+    if !is_tool(program, name) {
+        return Err(format!(
+            "Sweep refused to run an unexpected program as {name}."
+        ));
     }
-    if !cache.is_absolute() || cache.file_name() != Some(OsStr::new(".pub-cache")) {
-        return Err("Sweep refused to clean an unexpected pub cache folder.".to_string());
+    if !folder.is_absolute() || folder.file_name() != Some(OsStr::new(folder_name)) {
+        return Err(format!(
+            "Sweep refused to let {name} clean an unexpected folder."
+        ));
     }
-    let out = Command::new(dart)
-        .args(["pub", "cache", "clean", "-f"])
-        .env("PUB_CACHE", cache)
+    Ok(())
+}
+
+fn output(what: &str, cmd: &mut Command) -> Result<(), String> {
+    let out = cmd
         .output()
-        .map_err(|e| format!("Could not run dart: {e}"))?;
+        .map_err(|e| format!("Could not run {what}: {e}"))?;
     if out.status.success() {
         Ok(())
     } else {
         Err(format!(
-            "dart pub cache clean failed: {}",
+            "{what} failed: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         ))
     }
+}
+
+/// npm and pnpm are often node scripts (`#!/usr/bin/env node`). Apps opened from
+/// Finder get a short PATH, so put the tool's own folder and the usual node
+/// locations first.
+fn child_path(program: &Path) -> OsString {
+    let home = dirs::home_dir().unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = program
+        .parent()
+        .map(Path::to_path_buf)
+        .into_iter()
+        .collect();
+    dirs.extend(search_dirs(&home));
+    std::env::join_paths(dirs).unwrap_or_default()
 }
 
 /// An absolute path to an executable file called `name`.
@@ -61,13 +119,21 @@ fn is_executable(_path: &Path) -> bool {
     false
 }
 
-/// Find the `dart` executable. Apps opened from Finder get a short `PATH`, so the
-/// usual Flutter SDK and Homebrew locations are checked as well.
-pub(super) fn find_dart(home: &Path) -> Option<PathBuf> {
+/// Folders searched for developer tools: `PATH`, then the places installers use.
+fn search_dirs(home: &Path) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
     for rel in [
+        // Node version managers and standalone installers
+        ".volta/bin",
+        "Library/pnpm",
+        ".local/share/pnpm",
+        ".bun/bin",
+        "Library/Application Support/fnm/aliases/default/bin",
+        ".local/share/fnm/aliases/default/bin",
+        ".fnm/aliases/default/bin",
+        // Flutter SDK
         "fvm/default/bin",
         "flutter/bin",
         "development/flutter/bin",
@@ -78,11 +144,22 @@ pub(super) fn find_dart(home: &Path) -> Option<PathBuf> {
     ] {
         dirs.push(home.join(rel));
     }
+    if let Some(nvm) = super::node::newest_nvm_bin(home) {
+        dirs.push(nvm);
+    }
     dirs.push(PathBuf::from("/opt/homebrew/bin"));
     dirs.push(PathBuf::from("/usr/local/bin"));
-    dirs.into_iter()
-        .map(|d| d.join("dart"))
-        .find(|p| is_tool(p, "dart"))
+    dirs.push(PathBuf::from("/usr/bin"));
+    dirs.push(PathBuf::from("/bin"));
+    dirs
+}
+
+/// Find an executable called `name` in the usual places.
+pub(super) fn find_tool(home: &Path, name: &str) -> Option<PathBuf> {
+    search_dirs(home)
+        .into_iter()
+        .map(|d| d.join(name))
+        .find(|p| is_tool(p, name))
 }
 
 #[cfg(all(test, unix))]
@@ -92,16 +169,24 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use tempfile::TempDir;
 
-    /// A fake `dart` that records its arguments and PUB_CACHE instead of cleaning anything.
+    /// A fake tool that records its arguments and settings instead of cleaning anything.
     fn fake_tool(dir: &Path, name: &str) -> PathBuf {
+        fs::create_dir_all(dir).unwrap();
         let path = dir.join(name);
         fs::write(
             &path,
-            "#!/bin/sh\necho \"$* PUB_CACHE=$PUB_CACHE\" > \"$(dirname \"$0\")/called.txt\"\n",
+            "#!/bin/sh\necho \"$* PUB_CACHE=$PUB_CACHE npm_config_cache=$npm_config_cache\" > \"$(dirname \"$0\")/called.txt\"\n",
         )
         .unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
         path
+    }
+
+    fn called(dir: &Path) -> String {
+        fs::read_to_string(dir.join("called.txt"))
+            .unwrap()
+            .trim()
+            .to_string()
     }
 
     #[test]
@@ -109,47 +194,112 @@ mod tests {
         let d = TempDir::new().unwrap();
         let dart = fake_tool(d.path(), "dart");
         let cache = d.path().join("home/.pub-cache");
-        run(&NativeCommand::DartPubCacheClean {
+        let freed = run(&NativeCommand::DartPubCacheClean {
             dart,
             cache: cache.clone(),
         })
         .unwrap();
-        let called = fs::read_to_string(d.path().join("called.txt")).unwrap();
-        assert_eq!(
-            called.trim(),
-            format!("pub cache clean -f PUB_CACHE={}", cache.display())
+        assert_eq!(freed, None);
+        assert!(called(d.path()).starts_with(&format!(
+            "pub cache clean -f PUB_CACHE={} ",
+            cache.display()
+        )));
+    }
+
+    #[test]
+    fn npm_cache_clean_pins_the_cache_folder() {
+        let d = TempDir::new().unwrap();
+        let npm = fake_tool(d.path(), "npm");
+        let cache = d.path().join("home/.npm");
+        run(&NativeCommand::NpmCacheClean {
+            npm,
+            cache: cache.clone(),
+        })
+        .unwrap();
+        assert!(called(d.path()).starts_with("cache clean --force "));
+        assert!(called(d.path()).ends_with(&format!("npm_config_cache={}", cache.display())));
+    }
+
+    #[test]
+    fn pnpm_prune_reports_measured_bytes() {
+        let d = TempDir::new().unwrap();
+        let pnpm = fake_tool(d.path(), "pnpm");
+        let store = d.path().join("Library/pnpm/store");
+        fs::create_dir_all(store.join("v10")).unwrap();
+        let freed = run(&NativeCommand::PnpmStorePrune {
+            pnpm,
+            store: store.clone(),
+        })
+        .unwrap();
+        // The fake removes nothing, so nothing was freed.
+        assert_eq!(freed, Some(0));
+        assert!(
+            called(d.path()).starts_with(&format!("store prune --store-dir {} ", store.display()))
         );
     }
 
     #[test]
-    fn pub_cache_clean_refuses_unexpected_programs_and_folders() {
+    fn commands_refuse_unexpected_programs_and_folders() {
         let d = TempDir::new().unwrap();
         let rm = fake_tool(d.path(), "rm");
         let dart = fake_tool(d.path(), "dart");
-        let cache = d.path().join(".pub-cache");
-        let cases = [
-            (rm, cache.clone()),
-            (PathBuf::from("dart"), cache.clone()),
-            (d.path().join("missing/dart"), cache.clone()),
-            (dart.clone(), d.path().join("Documents")),
-            (dart, PathBuf::from(".pub-cache")),
+        let npm = fake_tool(d.path(), "npm");
+        let pnpm = fake_tool(d.path(), "pnpm");
+        let cmds = [
+            NativeCommand::DartPubCacheClean {
+                dart: rm.clone(),
+                cache: d.path().join(".pub-cache"),
+            },
+            NativeCommand::DartPubCacheClean {
+                dart: PathBuf::from("dart"),
+                cache: d.path().join(".pub-cache"),
+            },
+            NativeCommand::DartPubCacheClean {
+                dart: d.path().join("missing/dart"),
+                cache: d.path().join(".pub-cache"),
+            },
+            NativeCommand::DartPubCacheClean {
+                dart: dart.clone(),
+                cache: d.path().join("Documents"),
+            },
+            NativeCommand::DartPubCacheClean {
+                dart,
+                cache: PathBuf::from(".pub-cache"),
+            },
+            NativeCommand::NpmCacheClean {
+                npm: rm.clone(),
+                cache: d.path().join(".npm"),
+            },
+            NativeCommand::NpmCacheClean {
+                npm,
+                cache: d.path().join("Documents"),
+            },
+            NativeCommand::PnpmStorePrune {
+                pnpm: rm,
+                store: d.path().join("store"),
+            },
+            NativeCommand::PnpmStorePrune {
+                pnpm,
+                store: d.path().join("Projects"),
+            },
         ];
-        for (dart, cache) in cases {
-            let cmd = NativeCommand::DartPubCacheClean { dart, cache };
+        for cmd in cmds {
             assert!(run(&cmd).is_err(), "{cmd:?} should be refused");
         }
         assert!(!d.path().join("called.txt").exists());
     }
 
     #[test]
-    fn find_dart_checks_flutter_sdk_in_home() {
+    fn find_tool_checks_installer_locations_in_home() {
         let d = TempDir::new().unwrap();
-        let bin = d.path().join("development/flutter/bin");
-        fs::create_dir_all(&bin).unwrap();
-        let dart = fake_tool(&bin, "dart");
-        // PATH may hold a real dart on the developer's machine; accept either, but a
-        // match must always be an executable called dart.
-        let found = find_dart(d.path()).unwrap();
+        let dart = fake_tool(&d.path().join("development/flutter/bin"), "dart");
+        let pnpm = fake_tool(&d.path().join("Library/pnpm"), "pnpm");
+        // PATH may hold a real tool on the developer's machine; accept either, but a
+        // match must always be an executable with that name.
+        let found = find_tool(d.path(), "dart").unwrap();
         assert!(found == dart || is_tool(&found, "dart"));
+        let found = find_tool(d.path(), "pnpm").unwrap();
+        assert!(found == pnpm || is_tool(&found, "pnpm"));
+        assert!(find_tool(d.path(), "definitely-not-a-tool").is_none());
     }
 }
