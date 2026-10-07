@@ -40,7 +40,7 @@
 - [x] 2.3 CocoaPods (متوسط) (أُنجزت 2026-10-07)
 - [x] 2.4 Flutter و Dart (عالي) (أُنجزت 2026-10-07)
 - [x] 2.5 Gradle و Android SDK و Android Studio (عالي) (أُنجزت 2026-10-07)
-- [ ] 2.6 Node: الكاشات العالمية (عالي)
+- [x] 2.6 Node: الكاشات العالمية (عالي) (أُنجزت 2026-10-07)
 - [ ] 2.7 Rust: registry والـ toolchains (متوسط)
 - [ ] 2.8 PHP و Laravel (متوسط)
 - [ ] 2.9 Python (متوسط)
