@@ -21,7 +21,8 @@ import {
   SiAnaconda,
   SiVagrant,
   SiDiscord,
-  SiXcode
+  SiXcode,
+  SiCocoapods
 } from 'react-icons/si';
 import { motion } from 'motion/react';
 import { invoke } from '../lib/tauri';
@@ -43,6 +44,7 @@ export default function ScanView({ initialPath, initialModules, onInitiate }: Sc
     { id: 'ai_assistants', title: 'AI Assistants', icon: Bot, description: 'Claude, ChatGPT, Codex, Cursor, Antigravity, Gemini, Copilot, Cline and more. Caches are Safe; chat history is Danger.', path: 'AI tools', color: 'text-[#D97757]', badge: 'Review' },
     { id: 'ai', title: 'AI / ML Models', icon: SiHuggingface, description: 'Gigabyte-heavy Hugging Face & Torch models.', path: 'Model Cache', color: 'text-[#FFD21E]' },
     { id: 'xcode', title: 'Xcode', icon: SiXcode, description: 'DerivedData build caches from Xcode and Flutter iOS builds.', path: 'DerivedData', color: 'text-[#147EFB]' },
+    { id: 'cocoapods', title: 'CocoaPods', icon: SiCocoapods, description: 'Pod download cache (Safe) and spec repos (Review, re-downloaded on the next pod install).', path: '~/.cocoapods', color: 'text-[#EE3322]' },
     { id: 'android', title: 'Android / Kotlin', icon: SiKotlin, description: 'Gradle build folders and AVD emulator images.', path: 'AVD / Gradle', color: 'text-[#7F52FF]' },
     { id: 'python', title: 'Python / Conda', icon: SiPython, description: 'Conda environments (marked Danger).', path: 'Conda / PIP', color: 'text-[#3776AB]' },
     { id: 'php', title: 'PHP / Laravel', icon: SiPhp, description: 'Vendor, composer caches, and storage logs.', path: 'composer.json', color: 'text-[#777BB4]' },

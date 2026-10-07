@@ -361,6 +361,25 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         min_bytes: 1,
     },
     g(
+        "cocoapods",
+        "CocoaPods Cache",
+        "Library/Caches/CocoaPods",
+        "Package Cache",
+        Safe,
+        &[],
+    ),
+    GlobalRule {
+        module: "cocoapods",
+        label: "CocoaPods Spec Repos",
+        home_rel: ".cocoapods/repos",
+        category: "Package Cache",
+        safety: Review,
+        blocked_if_running: &[],
+        split_children: false,
+        note: "CocoaPods spec repositories. The public trunk is downloaded again on the next `pod install`, which can take a while. Private spec repos must be added again with `pod repo add`.",
+        min_bytes: 1,
+    },
+    g(
         "android",
         "Android AVD Images",
         ".android/avd",
@@ -1836,5 +1855,50 @@ mod tests {
         let r = scan(d.path(), &["xcode"]);
         assert_eq!(find(&r, "Archives/2026-10-01").unwrap().item.status, Review);
         assert_eq!(find(&r, "CoreSimulator/Caches").unwrap().item.status, Safe);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn cocoapods_cache_and_spec_repos() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        // Over the 10 MB split threshold, so `os_system` would list it too.
+        write(
+            &home.join("Library/Caches/CocoaPods/Pods/Release/Alamofire/a"),
+            11 * 1024 * 1024,
+        );
+        write(&home.join(".cocoapods/repos/trunk/Specs/x.json"), 5000);
+        // Negative: CocoaPods config next to the repos must stay.
+        write(&home.join(".cocoapods/config.yaml"), 100);
+        let r = scan(d.path(), &["cocoapods"]);
+        assert_eq!(
+            find(&r, "Library/Caches/CocoaPods").unwrap().item.status,
+            Safe
+        );
+        assert_eq!(find(&r, ".cocoapods/repos").unwrap().item.status, Review);
+        assert!(find(&r, ".cocoapods").is_none());
+        assert!(find(&r, "config.yaml").is_none());
+        assert_eq!(r.items.len(), 2);
+
+        // The specific rule wins over the per-app split of ~/Library/Caches.
+        let r = scan(d.path(), &["cocoapods", "os_system"]);
+        let pods: Vec<_> = r
+            .items
+            .iter()
+            .filter(|i| i.item.path.ends_with("Library/Caches/CocoaPods"))
+            .collect();
+        assert_eq!(pods.len(), 1);
+        assert_eq!(pods[0].item.file_type, "CocoaPods Cache");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn cocoapods_disabled_lists_nothing() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join("Library/Caches/CocoaPods/Pods/a"), 5000);
+        write(&home.join(".cocoapods/repos/trunk/a"), 5000);
+        let r = scan(d.path(), &["homebrew"]);
+        assert!(r.items.is_empty());
     }
 }
