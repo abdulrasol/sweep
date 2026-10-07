@@ -27,7 +27,7 @@ interface ModuleDef {
 }
 
 const PROJECT_MODULES: ModuleDef[] = [
-  { id: 'flutter', title: 'Flutter / Dart', icon: SiFlutter, color: '#02569B', description: 'build, .dart_tool and iOS/macOS Pods inside Flutter projects.' },
+  { id: 'flutter', title: 'Flutter / Dart', icon: SiFlutter, color: '#02569B', description: 'build, .dart_tool and Pods in Flutter projects, plus the pub cache through dart.', review: true },
   { id: 'node', title: 'Node / pnpm', icon: SiNodedotjs, color: '#339933', description: 'node_modules, .next and other build output, plus the pnpm store.' },
   { id: 'rust', title: 'Rust / Cargo', icon: SiRust, color: '#CE422B', description: 'target folders in Cargo projects.' },
   { id: 'android', title: 'Android / Kotlin', icon: SiKotlin, color: '#7F52FF', description: 'Gradle build folders and emulator images.', review: true },

@@ -17,8 +17,12 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 mod ai_rules;
+mod dart;
+mod native_commands;
 mod simulators;
 mod versions;
+
+use native_commands::NativeCommand;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -78,9 +82,8 @@ pub struct ScannedItem {
 pub enum Action {
     /// Delete `item.path` after the safety checks in `delete_path`.
     DeletePath,
-    /// Run an official tool instead (PLAN 3.3). Only commands accepted by
-    /// `simulators::is_allowed_command` ever run.
-    Command(Vec<String>),
+    /// Run an official tool instead (PLAN 3.3). See `native_commands`.
+    Command(NativeCommand),
 }
 
 #[derive(Debug, Default)]
@@ -130,6 +133,8 @@ static PROJECT_RULES: &[ProjectRule] = &[
             t("ios/.symlinks", Safe),
             t("macos/Pods", Safe),
             t("android/.gradle", Safe),
+            t(".flutter-plugins", Safe),
+            t(".flutter-plugins-dependencies", Safe),
         ],
         blocked_if_running: &[],
     },
@@ -661,6 +666,7 @@ pub fn scan_directory(
     collect_global(env, &enabled, &mut candidates);
     versions::collect(env, &enabled, &mut candidates);
     simulators::collect(env, &enabled, &mut candidates);
+    dart::collect(env, &enabled, &mut candidates);
     collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
 
     candidates.retain(|c| !is_ignored(&c.path));
@@ -1156,7 +1162,7 @@ pub fn execute(
 ) -> Result<(), String> {
     match &item.action {
         Action::DeletePath => delete_path(item, allowed_roots, protected),
-        Action::Command(args) => simulators::run_command(args),
+        Action::Command(cmd) => native_commands::run(cmd),
     }
 }
 
@@ -1235,6 +1241,40 @@ mod tests {
             .iter()
             .all(|p| p.ends_with("build") || p.ends_with(".dart_tool")));
         assert!(r.items.iter().all(|i| i.item.status == Safe));
+    }
+
+    #[test]
+    fn flutter_plugin_files_found() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("pubspec.yaml"), 10);
+        write(&p.join(".flutter-plugins"), 300);
+        write(&p.join(".flutter-plugins-dependencies"), 900);
+        // Negative: the lock file and sources must stay.
+        write(&p.join("pubspec.lock"), 900);
+        write(&p.join("lib/main.dart"), 100);
+        let r = scan(d.path(), &["flutter"]);
+        let ps = paths(&r);
+        assert_eq!(ps.len(), 2, "{ps:?}");
+        assert!(ps.iter().any(|p| p.ends_with("app/.flutter-plugins")));
+        assert!(ps
+            .iter()
+            .any(|p| p.ends_with("app/.flutter-plugins-dependencies")));
+    }
+
+    #[test]
+    fn tracked_flutter_plugin_file_is_kept() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("pubspec.yaml"), 10);
+        write(&p.join(".flutter-plugins-dependencies"), 900);
+        git(&p, &["init", "-q"]);
+        git(
+            &p,
+            &["add", "pubspec.yaml", ".flutter-plugins-dependencies"],
+        );
+        let r = scan(d.path(), &["flutter"]);
+        assert!(r.items.is_empty());
     }
 
     #[test]

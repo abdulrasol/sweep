@@ -8,7 +8,7 @@
 //!   `deletable` or not in the `Ready` state is never offered;
 //! - the newest runtime of each platform is always kept.
 
-use super::{Action, Candidate, Env, Safety};
+use super::{Action, Candidate, Env, NativeCommand, Safety};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -74,7 +74,7 @@ fn command_candidate(
         description,
         blocked_if_running: vec!["Simulator", "Xcode"],
         project_root: None,
-        action: Action::Command(args),
+        action: Action::Command(NativeCommand::Xcrun(args)),
         known_size: Some(size),
         min_bytes: 1,
         group: "Dev Tools",

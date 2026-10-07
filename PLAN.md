@@ -380,11 +380,11 @@ for e in WalkDir::new(p).follow_links(false) {
 
 **ليش:** `~/.pub-cache` يكبر مع كل مشروع وكل إصدار حزمة.
 
-**الحل:** - استخدم `dart pub cache clean -f` بدل المسح اليدوي.
-- بالمشاريع خلّي `flutter clean` هو الأمر الأساسي، والمسح اليدوي احتياط إذا Flutter مو موجود.
-- أضف `macos/Pods` و `.flutter-plugins-dependencies` لقائمة المشروع.
+**الحل:** - استخدم `dart pub cache clean -f` بدل المسح اليدوي، بحالة REVIEW. الأمر يمسح الحزم المفعّلة بـ `dart pub global activate` هم، فالوصف يذكرها بالاسم. إذا `dart` مو موجود ما نعرض العنصر.
+- بالمشاريع نبقى على المسح اليدوي مع حماية git (قرار المستخدم 2026-10-07). `flutter clean` بطيء، ويشغّل `xcodebuild clean`، ويمسح ملفات مولّدة غير اللي نعرضها، فما نگدر نضمن إنه ما يلمس ملف متتبَّع.
+- أضف `.flutter-plugins` و `.flutter-plugins-dependencies` لقائمة المشروع (`macos/Pods` موجود).
 
-**الملفات:** `rules, native_commands.rs`
+**الملفات:** `rules, native_commands.rs, dart.rs`
 
 **متى نعتبرها خلصت:** pub-cache يطلع بحجمه والتنظيف يتم بالأمر الرسمي.
 
