@@ -398,8 +398,10 @@ for e in WalkDir::new(p).follow_links(false) {
 - Android SDK: `system-images` و `build-tools` القديمة بحالة REVIEW. ويفضّل استخدام `sdkmanager --uninstall`.
 - مجلدات الإصدارات القديمة من Android Studio بـ `~/Library/Caches/Google` و `~/Library/Application Support/Google` و `~/Library/Logs/Google`.
 - `~/.android/cache`: SAFE.
+- عند التنفيذ: مجلدات الـ SDK تنمسح يدوياً بدل `sdkmanager`، لأنه يحتاج Java والتطبيق المفتوح من Finder غالباً ما يلگاها. كل حزمة `package.xml` مالتها داخل مجلدها، فمسح المجلد يساوي إلغاء تنصيبها. الـ system-images اللي يستخدمها أي AVD ما تنعرض، وإذا ما گدرنا نقرا أي AVD ما نعرض ولا وحدة.
+- "App caches" (`~/Library/Caches` مقسّم) صار يتنحى إذا قاعدة محددة تعرض نفس المجلد أو شي داخله، حتى ما يغطي على إصدارات Android Studio.
 
-**الملفات:** `rules`
+**الملفات:** `rules, android.rs`
 
 **متى نعتبرها خلصت:** كل إصدار قديم من Android Studio يطلع منفصل.
 

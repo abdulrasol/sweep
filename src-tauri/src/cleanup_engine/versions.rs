@@ -138,6 +138,7 @@ pub(super) fn collect(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidat
                     action: super::Action::DeletePath,
                     known_size: None,
                     min_bytes: 1,
+                    catch_all: false,
                 });
             }
         }
@@ -156,6 +157,7 @@ pub(super) fn collect(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidat
                 action: super::Action::DeletePath,
                 known_size: None,
                 min_bytes: 1,
+                catch_all: false,
             });
         }
     }

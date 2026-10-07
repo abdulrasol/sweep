@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 mod ai_rules;
+mod android;
 mod dart;
 mod native_commands;
 mod simulators;
@@ -392,6 +393,33 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         Review,
         &["qemu-system-aarch64", "qemu-system-x86_64"],
     ),
+    GlobalRule {
+        module: "android",
+        label: "Gradle Caches",
+        home_rel: ".gradle/caches",
+        category: "Gradle",
+        safety: Review,
+        blocked_if_running: &["studio"],
+        split_children: false,
+        note: "Dependencies and build caches shared by every Gradle project. Each project downloads what it needs again on its next build. Run ./gradlew --stop first if a build is running.",
+        min_bytes: 1,
+    },
+    g(
+        "android",
+        "Gradle Daemon Logs",
+        ".gradle/daemon",
+        "Gradle",
+        Safe,
+        &[],
+    ),
+    g(
+        "android",
+        "Android SDK Cache",
+        ".android/cache",
+        "Android SDK",
+        Safe,
+        &[],
+    ),
     g(
         "os",
         "Vagrant Boxes",
@@ -511,6 +539,33 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         Review,
         &[],
     ),
+    GlobalRule {
+        module: "android",
+        label: "Gradle Caches",
+        home_rel: ".gradle/caches",
+        category: "Gradle",
+        safety: Review,
+        blocked_if_running: &["studio"],
+        split_children: false,
+        note: "Dependencies and build caches shared by every Gradle project. Each project downloads what it needs again on its next build. Run ./gradlew --stop first if a build is running.",
+        min_bytes: 1,
+    },
+    g(
+        "android",
+        "Gradle Daemon Logs",
+        ".gradle/daemon",
+        "Gradle",
+        Safe,
+        &[],
+    ),
+    g(
+        "android",
+        "Android SDK Cache",
+        ".android/cache",
+        "Android SDK",
+        Safe,
+        &[],
+    ),
     g(
         "ai",
         "Hugging Face Models",
@@ -561,6 +616,33 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         ".android/avd",
         "Emulator Data",
         Review,
+        &[],
+    ),
+    GlobalRule {
+        module: "android",
+        label: "Gradle Caches",
+        home_rel: ".gradle/caches",
+        category: "Gradle",
+        safety: Review,
+        blocked_if_running: &["studio"],
+        split_children: false,
+        note: "Dependencies and build caches shared by every Gradle project. Each project downloads what it needs again on its next build. Run ./gradlew --stop first if a build is running.",
+        min_bytes: 1,
+    },
+    g(
+        "android",
+        "Gradle Daemon Logs",
+        ".gradle/daemon",
+        "Gradle",
+        Safe,
+        &[],
+    ),
+    g(
+        "android",
+        "Android SDK Cache",
+        ".android/cache",
+        "Android SDK",
+        Safe,
         &[],
     ),
     g(
@@ -649,6 +731,9 @@ struct Candidate {
     action: Action,
     /// Size reported by the tool that owns the item; skips walking `path`.
     known_size: Option<u64>,
+    /// One folder of a catch-all listing (each folder in ~/Library/Caches). It gives
+    /// way to any specific rule that lists the same folder or something inside it.
+    catch_all: bool,
 }
 
 pub fn scan_directory(
@@ -667,10 +752,12 @@ pub fn scan_directory(
     versions::collect(env, &enabled, &mut candidates);
     simulators::collect(env, &enabled, &mut candidates);
     dart::collect(env, &enabled, &mut candidates);
+    android::collect(env, &enabled, &mut candidates);
     collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
 
     candidates.retain(|c| !is_ignored(&c.path));
     let candidates = drop_git_tracked(candidates);
+    let candidates = drop_shadowed_catch_alls(candidates);
     let candidates = drop_nested(candidates);
 
     let mut items: Vec<ScannedItem> = candidates
@@ -777,6 +864,7 @@ fn collect_global(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) 
                         known_size: None,
                         min_bytes: rule.min_bytes,
                         group: module_group(rule.module),
+                        catch_all: rule.module == "os_system",
                     });
                 }
             } else {
@@ -803,6 +891,7 @@ fn collect_global(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) 
                     known_size: None,
                     min_bytes: rule.min_bytes,
                     group: module_group(rule.module),
+                    catch_all: false,
                 });
             }
         }
@@ -879,6 +968,7 @@ fn collect_projects(
                         known_size: None,
                         min_bytes: 1,
                         group: "Projects",
+                        catch_all: false,
                     });
                 }
             }
@@ -964,6 +1054,21 @@ fn contains_tracked(workdir: &Path, tracked: &[String], path: &Path) -> bool {
 }
 
 /// Keep only the outermost of nested candidates and remove duplicates.
+/// Drop catch-all items that a specific rule lists, or lists something inside.
+/// Without this, the whole `~/Library/Caches/Google` folder would hide the old
+/// Android Studio versions listed inside it.
+fn drop_shadowed_catch_alls(candidates: Vec<Candidate>) -> Vec<Candidate> {
+    let specific: Vec<PathBuf> = candidates
+        .iter()
+        .filter(|c| !c.catch_all)
+        .map(|c| c.path.clone())
+        .collect();
+    candidates
+        .into_iter()
+        .filter(|c| !c.catch_all || !specific.iter().any(|p| p.starts_with(&c.path)))
+        .collect()
+}
+
 fn drop_nested(mut candidates: Vec<Candidate>) -> Vec<Candidate> {
     candidates.sort_by(|a, b| a.path.cmp(&b.path));
     let mut kept: Vec<Candidate> = Vec::with_capacity(candidates.len());
@@ -1895,6 +2000,48 @@ mod tests {
         let r = scan(d.path(), &["xcode"]);
         assert_eq!(find(&r, "Archives/2026-10-01").unwrap().item.status, Review);
         assert_eq!(find(&r, "CoreSimulator/Caches").unwrap().item.status, Safe);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn old_android_studio_wins_over_app_cache_folder() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let big = 11 * 1024 * 1024;
+        write(
+            &home.join("Library/Caches/Google/AndroidStudio2023.1/idx"),
+            big,
+        );
+        write(
+            &home.join("Library/Caches/Google/AndroidStudio2024.2/idx"),
+            5000,
+        );
+
+        // App caches alone: the whole Google folder is one item.
+        let r = scan(d.path(), &["os_system"]);
+        assert!(find(&r, "Library/Caches/Google").is_some());
+
+        // With Android on, the old version is listed and the Google folder gives way.
+        let r = scan(d.path(), &["os_system", "android"]);
+        assert!(find(&r, "Google/AndroidStudio2023.1").is_some());
+        assert!(find(&r, "Library/Caches/Google").is_none());
+        // Negative: the newest version is never listed.
+        assert!(find(&r, "Google/AndroidStudio2024.2").is_none());
+    }
+
+    #[test]
+    fn gradle_caches_are_review_and_daemon_logs_safe() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join(".gradle/caches/modules-2/files-2.1/x.jar"), 5000);
+        write(&home.join(".gradle/daemon/8.10/daemon-1.out.log"), 5000);
+        // Negative: Gradle settings must stay.
+        write(&home.join(".gradle/gradle.properties"), 100);
+        let r = scan(d.path(), &["android"]);
+        assert_eq!(find(&r, ".gradle/caches").unwrap().item.status, Review);
+        assert_eq!(find(&r, ".gradle/daemon").unwrap().item.status, Safe);
+        assert!(find(&r, "gradle.properties").is_none());
+        assert!(find(&r, "__home/.gradle").is_none());
     }
 
     #[cfg(target_os = "macos")]

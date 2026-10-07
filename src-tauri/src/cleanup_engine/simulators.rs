@@ -78,6 +78,7 @@ fn command_candidate(
         known_size: Some(size),
         min_bytes: 1,
         group: "Dev Tools",
+        catch_all: false,
     }
 }
 
