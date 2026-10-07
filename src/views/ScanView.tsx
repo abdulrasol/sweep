@@ -1,209 +1,199 @@
-import React, { useState, useEffect } from 'react';
-import { Folder, Edit, ChevronRight, Apple, HardDrive, Monitor, Coffee, Zap, Bot } from 'lucide-react';
-import { 
-  SiFlutter, 
-  SiNodedotjs, 
-  SiRust, 
-  SiPython, 
-  SiDocker, 
-  SiHomebrew, 
-  SiApple,
-  SiPhp,
-  SiAndroid,
-  SiKotlin,
-  SiGo,
-  SiCplusplus,
-  SiUnity,
-  SiDotnet,
-  SiRubyonrails,
-  SiUnrealengine,
-  SiHuggingface,
-  SiAnaconda,
-  SiVagrant,
-  SiDiscord,
-  SiXcode,
-  SiCocoapods
+import { useState, useEffect, type ComponentType } from 'react';
+import { FolderOpen, HardDrive, Monitor, Bot, ScanSearch } from 'lucide-react';
+import {
+  SiFlutter, SiNodedotjs, SiRust, SiPython, SiDocker, SiHomebrew, SiPhp, SiKotlin, SiGo,
+  SiCplusplus, SiUnity, SiDotnet, SiRubyonrails, SiUnrealengine, SiHuggingface, SiVagrant,
+  SiDiscord, SiXcode, SiCocoapods,
 } from 'react-icons/si';
-import { motion } from 'motion/react';
 import { invoke } from '../lib/tauri';
 
 interface ScanViewProps {
   initialPath: string;
   initialModules: string[];
-  onInitiate: (path: string, selectedModules: string[]) => void;
+  onScan: (path: string, modules: string[]) => void;
 }
 
-export default function ScanView({ initialPath, initialModules, onInitiate }: ScanViewProps) {
-  const [path, setPath] = useState(initialPath || '/Users/rasol/DevsTools');
-  
-  const modulesDef = [
-    { id: 'flutter', title: 'Flutter / Dart', icon: SiFlutter, description: 'Build artifacts, .dart_tool, and iOS/macOS Pods.', path: 'pubspec.yaml', color: 'text-[#02569B]' },
-    { id: 'node', title: 'Node / PNPM', icon: SiNodedotjs, description: 'node_modules, .next, and PNPM global stores.', path: 'package.json', color: 'text-[#339933]' },
-    { id: 'rust', title: 'Rust / Cargo', icon: SiRust, description: 'Removes heavy target directories and builds.', path: 'Cargo.toml', color: 'text-orange-500' },
-    { id: 'editors', title: 'Editor Extensions', icon: Monitor, description: 'Old extension versions in VS Code, Cursor, Antigravity, Trae, Windsurf and Kiro. Only versions the editor no longer loads.', path: '~/.<editor>/extensions', color: 'text-[#0EA5E9]' },
-    { id: 'ai_assistants', title: 'AI Assistants', icon: Bot, description: 'Claude, ChatGPT, Codex, Cursor, Antigravity, Gemini, Copilot, Cline and more. Caches are Safe; chat history is Danger.', path: 'AI tools', color: 'text-[#D97757]', badge: 'Review' },
-    { id: 'ai', title: 'AI / ML Models', icon: SiHuggingface, description: 'Gigabyte-heavy Hugging Face & Torch models.', path: 'Model Cache', color: 'text-[#FFD21E]' },
-    { id: 'xcode', title: 'Xcode', icon: SiXcode, description: 'DerivedData build caches from Xcode and Flutter iOS builds.', path: 'DerivedData', color: 'text-[#147EFB]' },
-    { id: 'cocoapods', title: 'CocoaPods', icon: SiCocoapods, description: 'Pod download cache (Safe) and spec repos (Review, re-downloaded on the next pod install).', path: '~/.cocoapods', color: 'text-[#EE3322]' },
-    { id: 'android', title: 'Android / Kotlin', icon: SiKotlin, description: 'Gradle build folders and AVD emulator images.', path: 'AVD / Gradle', color: 'text-[#7F52FF]' },
-    { id: 'python', title: 'Python / Conda', icon: SiPython, description: 'Conda environments (marked Danger).', path: 'Conda / PIP', color: 'text-[#3776AB]' },
-    { id: 'php', title: 'PHP / Laravel', icon: SiPhp, description: 'Vendor, composer caches, and storage logs.', path: 'composer.json', color: 'text-[#777BB4]' },
-    { id: 'dotnet', title: '.NET / C#', icon: SiDotnet, description: 'Clears bin/obj folders and NuGet package caches.', path: '*.sln / CS', color: 'text-[#512BD4]' },
-    { id: 'unreal', title: 'Unreal Engine', icon: SiUnrealengine, description: 'Massive Intermediate, Saved, and Binaries.', path: '*.uproject', color: 'text-on-surface' },
-    { id: 'ruby', title: 'Ruby on Rails', icon: SiRubyonrails, description: 'Targets vendor/bundle and internal tmp caches.', path: 'Gemfile', color: 'text-[#CC0000]' },
-    { id: 'unity', title: 'Unity Engine', icon: SiUnity, description: 'Cleans massive Library and Temp project folders.', path: 'ProjectSettings', color: 'text-[#222c37]' },
-    { id: 'cpp', title: 'C++ / CMake', icon: SiCplusplus, description: 'Clears build, out, and object directories.', path: 'CMakeLists.txt', color: 'text-[#00599C]' },
-    { id: 'go', title: 'Go / Golang', icon: SiGo, description: 'Module and build caches arrive in a later update.', path: 'go.mod', color: 'text-[#00ADD8]' },
-    { id: 'adobe', title: 'Adobe Caches', icon: HardDrive, description: 'Heavy After Effects & Premiere media caches.', path: 'Adobe Common', color: 'text-[#FF0000]' },
-    { id: 'social', title: 'Comms & Media', icon: SiDiscord, description: 'Telegram media, Discord and Spotify caches.', path: 'Social Cache', color: 'text-[#5865F2]' },
-    { id: 'os', title: 'Virtualization', icon: SiVagrant, description: 'Vagrant boxes (marked Danger).', path: 'VM / Vagrant', color: 'text-[#1563FF]' },
-    { id: 'docker', title: 'Docker System', icon: SiDocker, description: 'Docker cleanup via the docker CLI arrives in a later update.', path: 'Docker Desktop', color: 'text-[#2496ED]' },
-    { id: 'homebrew', title: 'Homebrew', icon: SiHomebrew, description: 'Clears downloaded bottles and formulae.', path: 'Homebrew Cache', color: 'text-[#FBB040]' },
-    { id: 'os_system', title: 'System Caches', icon: HardDrive, description: 'Per-app folders inside ~/Library/Caches over 10 MB.', path: 'System Cache', color: 'text-red-400', badge: 'Review' },
-  ];
+interface ModuleDef {
+  id: string;
+  title: string;
+  icon: ComponentType<{ className?: string }>;
+  description: string;
+  /** Brand color for the icon. */
+  color: string;
+  /** Can list items that need a closer look before removing. */
+  review?: boolean;
+  /** Listed for completeness; the engine has no rules for it yet. */
+  soon?: boolean;
+}
 
-  const [enabledModules, setEnabledModules] = useState<Set<string>>(new Set(initialModules));
+const PROJECT_MODULES: ModuleDef[] = [
+  { id: 'flutter', title: 'Flutter / Dart', icon: SiFlutter, color: '#02569B', description: 'build, .dart_tool and iOS/macOS Pods inside Flutter projects.' },
+  { id: 'node', title: 'Node / pnpm', icon: SiNodedotjs, color: '#339933', description: 'node_modules, .next and other build output, plus the pnpm store.' },
+  { id: 'rust', title: 'Rust / Cargo', icon: SiRust, color: '#CE422B', description: 'target folders in Cargo projects.' },
+  { id: 'android', title: 'Android / Kotlin', icon: SiKotlin, color: '#7F52FF', description: 'Gradle build folders and emulator images.', review: true },
+  { id: 'php', title: 'PHP / Laravel', icon: SiPhp, color: '#777BB4', description: 'vendor folders and Laravel storage logs.' },
+  { id: 'dotnet', title: '.NET / C#', icon: SiDotnet, color: '#512BD4', description: 'bin and obj folders, and the NuGet package cache.' },
+  { id: 'ruby', title: 'Ruby on Rails', icon: SiRubyonrails, color: '#CC0000', description: 'vendor/bundle and tmp caches.' },
+  { id: 'cpp', title: 'C++ / CMake', icon: SiCplusplus, color: '#00599C', description: 'CMake build and out folders.' },
+  { id: 'unity', title: 'Unity', icon: SiUnity, color: 'currentColor', description: 'Library and Temp folders in Unity projects.' },
+  { id: 'unreal', title: 'Unreal Engine', icon: SiUnrealengine, color: 'currentColor', description: 'Intermediate, Saved and Binaries folders.' },
+  { id: 'go', title: 'Go', icon: SiGo, color: '#00ADD8', description: 'Module and build caches.', soon: true },
+];
+
+const GLOBAL_MODULES: ModuleDef[] = [
+  { id: 'xcode', title: 'Xcode', icon: SiXcode, color: '#147EFB', description: 'DerivedData, device support, archives, previews and simulators.', review: true },
+  { id: 'cocoapods', title: 'CocoaPods', icon: SiCocoapods, color: '#EE3322', description: 'Pod download cache and spec repos.', review: true },
+  { id: 'homebrew', title: 'Homebrew', icon: SiHomebrew, color: '#FBB040', description: 'Downloaded bottles and formulae.' },
+  { id: 'ai_assistants', title: 'AI assistants', icon: Bot, color: '#D97757', description: 'Caches from Claude, ChatGPT, Codex, Cursor, Gemini, Copilot and more. Chat history is marked Danger.', review: true },
+  { id: 'ai', title: 'AI / ML models', icon: SiHuggingface, color: '#FFB000', description: 'Hugging Face and PyTorch model caches.', review: true },
+  { id: 'editors', title: 'Editor extensions', icon: Monitor, color: '#0EA5E9', description: 'Old extension versions in VS Code, Cursor, Windsurf and others.' },
+  { id: 'python', title: 'Python / Conda', icon: SiPython, color: '#3776AB', description: 'Conda environments, marked Danger.', review: true },
+  { id: 'os', title: 'Vagrant', icon: SiVagrant, color: '#1563FF', description: 'Vagrant boxes, marked Danger.', review: true },
+  { id: 'social', title: 'Chat and media apps', icon: SiDiscord, color: '#5865F2', description: 'Telegram media, Discord and Spotify caches.', review: true },
+  { id: 'adobe', title: 'Adobe', icon: HardDrive, color: '#FF3D00', description: 'After Effects and Premiere media cache.', review: true },
+  { id: 'os_system', title: 'App caches', icon: HardDrive, color: 'currentColor', description: 'Each folder in ~/Library/Caches over 10 MB, listed for review.', review: true },
+  { id: 'docker', title: 'Docker', icon: SiDocker, color: '#2496ED', description: 'Cleanup through the docker CLI.', soon: true },
+];
+
+const ALL_MODULES = [...PROJECT_MODULES, ...GLOBAL_MODULES];
+const AVAILABLE_IDS = ALL_MODULES.filter(m => !m.soon).map(m => m.id);
+
+function ModuleCard({ mod, on, onToggle }: { mod: ModuleDef; on: boolean; onToggle: () => void }) {
+  const Icon = mod.icon;
+  return (
+    <button
+      role="switch"
+      aria-checked={on}
+      disabled={mod.soon}
+      onClick={onToggle}
+      className={`text-left flex gap-3 p-3.5 rounded-xl border transition-colors
+        ${mod.soon ? 'border-dashed border-outline opacity-60 cursor-not-allowed'
+          : on ? 'border-primary/50 bg-primary/[0.05]' : 'border-outline bg-surface-container hover:border-outline-variant'}`}
+    >
+      <span className={`mt-0.5 shrink-0 transition-opacity ${on || mod.soon ? '' : 'opacity-40'}`} style={{ color: mod.color }}>
+        <Icon className="w-5 h-5" />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="flex items-center gap-2">
+          <span className="text-sm font-medium truncate">{mod.title}</span>
+          {mod.review && !mod.soon && (
+            <span className="text-[10px] px-1.5 py-px rounded border border-warning/40 text-warning">Review</span>
+          )}
+          {mod.soon && <span className="text-[10px] px-1.5 py-px rounded bg-surface-bright text-on-surface/60">Coming later</span>}
+        </span>
+        <span className="block mt-0.5 text-xs text-on-surface/55 leading-snug">{mod.description}</span>
+      </span>
+      {!mod.soon && (
+        <span className={`mt-0.5 w-8 h-[18px] shrink-0 rounded-full p-0.5 transition-colors ${on ? 'bg-primary' : 'bg-outline-variant'}`} aria-hidden>
+          <span className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${on ? 'translate-x-3.5' : ''}`} />
+        </span>
+      )}
+    </button>
+  );
+}
+
+export default function ScanView({ initialPath, initialModules, onScan }: ScanViewProps) {
+  const [path, setPath] = useState(initialPath);
+  const [enabled, setEnabled] = useState<Set<string>>(new Set(initialModules.filter(id => AVAILABLE_IDS.includes(id))));
+  const [pickError, setPickError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (initialModules.length > 0) {
-      setEnabledModules(new Set(initialModules));
-    }
-    if (initialPath) {
-      setPath(initialPath);
-    }
-  }, [initialModules, initialPath]);
+    if (initialPath) setPath(initialPath);
+  }, [initialPath]);
 
-  const handleSelectDirectory = async () => {
+  const chooseFolder = async () => {
     try {
-      const selected = await invoke<string>('select_directory');
-      if (selected) {
-        setPath(selected);
-      }
+      const selected = await invoke<string | null>('select_directory');
+      if (selected) setPath(selected);
+      setPickError(null);
     } catch (err) {
-      console.error("Directory selection failed:", err);
+      setPickError(String(err));
     }
   };
 
-  const toggleModule = (id: string) => {
-    const newEnabled = new Set(enabledModules);
-    if (newEnabled.has(id)) newEnabled.delete(id);
-    else newEnabled.add(id);
-    setEnabledModules(newEnabled);
-  };
+  const toggle = (id: string) =>
+    setEnabled(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const allOn = enabled.size === AVAILABLE_IDS.length;
+  const canScan = enabled.size > 0 && path.trim() !== '';
+
+  const section = (title: string, hint: string, list: ModuleDef[]) => (
+    <section className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <p className="text-xs text-on-surface/55">{hint}</p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+        {list.map(m => <ModuleCard key={m.id} mod={m} on={enabled.has(m.id)} onToggle={() => toggle(m.id)} />)}
+      </div>
+    </section>
+  );
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      {/* Unified Scrollable Area */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        <div className="p-8 space-y-10">
-          {/* Header & Scope */}
-          <div className="space-y-6">
-            <section className="space-y-2">
-              <h2 className="text-2xl font-bold tracking-tight text-on-surface">Target Scope Configuration</h2>
-              <p className="text-sm text-on-surface/40 leading-relaxed max-w-2xl">
-                Sweep now supports technical and stealth storage eaters, including virtual machines, emulators, and communication caches.
-              </p>
-            </section>
+    <div className="h-full flex flex-col">
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-5xl mx-auto px-6 py-6 space-y-8">
+          <header className="space-y-1.5">
+            <h2 className="text-xl font-semibold tracking-tight">Choose what to scan</h2>
+            <p className="text-sm text-on-surface/60 max-w-2xl">
+              Sweep looks for build output inside your projects folder and for caches left by the tools you turn on.
+              Nothing is removed until you review it.
+            </p>
+          </header>
 
-            {/* Root Directory Scope */}
-            <div className="bg-surface-container border border-outline rounded-2xl overflow-hidden shadow-sm">
-              <div className="p-3 bg-surface-bright/30 border-b border-outline flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Folder className="w-3.5 h-3.5 text-primary opacity-80" />
-                  <span className="text-[9px] font-bold uppercase tracking-widest text-on-surface/60">Root Directory Scope</span>
-                </div>
-              </div>
-              <div className="p-4 flex items-center gap-4">
-                <div className="flex-1 flex items-center gap-3 bg-surface-dim border border-outline px-4 py-2 rounded-xl font-mono text-xs group focus-within:border-primary/50 transition-all text-on-surface/70">
-                  <Monitor className="w-3.5 h-3.5 opacity-30" />
-                  <input 
-                    value={path}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPath(e.target.value)}
-                    className="bg-transparent outline-none flex-1 placeholder:text-on-surface/10"
-                  />
-                </div>
-                <button 
-                  onClick={handleSelectDirectory}
-                  className="flex items-center gap-2 px-4 py-2 border border-outline rounded-xl hover:bg-surface-bright transition-all text-[10px] font-bold text-on-surface/60 uppercase tracking-widest"
-                >
-                  <Edit className="w-3 h-3" />
-                  <span>Modify</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Modules Grid Section */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between px-2">
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/30">Analysis Modules ({enabledModules.size} Active)</h3>
-              <button 
-                onClick={() => setEnabledModules(new Set(modulesDef.map(m => m.id)))}
-                className="text-[10px] font-bold uppercase tracking-widest text-primary hover:underline"
+          <section className="space-y-2">
+            <label htmlFor="scan-path" className="text-sm font-semibold">Projects folder</label>
+            <div className="flex gap-2">
+              <input
+                id="scan-path"
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="/Users/you/Projects"
+                spellCheck={false}
+                className="flex-1 min-w-0 bg-surface-container border border-outline rounded-lg px-3 py-2 font-mono text-xs outline-none focus:border-primary/60 placeholder:text-on-surface/30"
+              />
+              <button
+                onClick={chooseFolder}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-outline bg-surface-container text-sm font-medium hover:bg-surface-bright transition-colors"
               >
-                Select All Modules
+                <FolderOpen className="w-4 h-4" />
+                Choose…
               </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {modulesDef.map((mod) => {
-                const isEnabled = enabledModules.has(mod.id);
-                return (
-                  <motion.div
-                    key={mod.id}
-                    whileHover={{ y: -2 }}
-                    onClick={() => toggleModule(mod.id)}
-                    className={`bg-surface-container border rounded-2xl p-5 space-y-4 relative group transition-all cursor-pointer
-                      ${isEnabled ? 'border-primary/40 bg-primary/[0.03]' : 'border-outline opacity-40 grayscale hover:grayscale-0 hover:opacity-70'}
-                    `}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className={`p-2.5 rounded-xl bg-surface-bright border border-outline ${mod.color} group-hover:scale-110 transition-transform shadow-inner`}>
-                          <mod.icon className="w-5 h-5" />
-                        </div>
-                        <div className="space-y-0.5">
-                          <h4 className="font-semibold text-sm text-on-surface">{mod.title}</h4>
-                          <div className="flex items-center gap-2 bg-surface-dim px-1.5 py-0.5 rounded text-[9px] font-mono border border-outline/30 text-on-surface/40 w-fit">
-                            {mod.path}
-                          </div>
-                        </div>
-                      </div>
-                      <div className={`w-10 h-5 rounded-full p-1 transition-colors ${isEnabled ? 'bg-primary' : 'bg-outline-variant'}`}>
-                        <div className={`w-3 h-3 bg-white rounded-full transition-transform ${isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
-                      </div>
-                    </div>
-                    <p className="text-[11px] text-on-surface/40 leading-relaxed min-h-[40px]">
-                      {mod.description}
-                    </p>
-                    {mod.badge && (
-                      <div className="flex justify-end">
-                        <span className="text-[9px] bg-yellow-500/10 text-yellow-500 px-2 py-0.5 rounded border border-yellow-500/20 font-bold uppercase tracking-tighter shadow-sm">
-                          {mod.badge}
-                        </span>
-                      </div>
-                    )}
-                  </motion.div>
-                );
-              })}
-            </div>
-          </div>
+            {pickError && <p className="text-xs text-error">Could not open the folder picker: {pickError}</p>}
+          </section>
+
+          {section('In your projects', 'Build folders found under the projects folder. Folders with files tracked by git are never removed.', PROJECT_MODULES)}
+          {section('On this Mac', 'Caches outside your projects, in your home folder and ~/Library.', GLOBAL_MODULES)}
         </div>
       </div>
 
-      {/* Permanently Docked Footer */}
-      <div className="p-6 px-8 border-t border-outline bg-surface-dim flex-shrink-0 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.15)] z-10">
-        <div className="max-w-7xl mx-auto flex justify-end">
+      <footer className="border-t border-outline bg-surface-container px-6 py-3.5 shrink-0">
+        <div className="max-w-5xl mx-auto flex items-center gap-4">
+          <span className="text-sm text-on-surface/60 tabular-nums">
+            {enabled.size} of {AVAILABLE_IDS.length} on
+          </span>
           <button
-            onClick={() => onInitiate(path, Array.from(enabledModules))}
-            disabled={enabledModules.size === 0}
-            className="group flex items-center gap-4 bg-on-surface text-surface px-10 py-4 rounded-xl font-bold text-xs uppercase tracking-[0.2em] hover:brightness-90 active:scale-[0.98] transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => setEnabled(allOn ? new Set() : new Set(AVAILABLE_IDS))}
+            className="text-sm text-primary hover:underline"
           >
-            <Zap className="w-4 h-4 fill-current" />
-            <span>Initiate Global Scan</span>
-            <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+            {allOn ? 'Turn all off' : 'Turn all on'}
+          </button>
+          <button
+            onClick={() => onScan(path.trim(), Array.from(enabled))}
+            disabled={!canScan}
+            className="ml-auto flex items-center gap-2 px-5 py-2 rounded-lg bg-on-surface text-surface text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <ScanSearch className="w-4 h-4" />
+            Scan
           </button>
         </div>
-      </div>
+      </footer>
     </div>
   );
 }

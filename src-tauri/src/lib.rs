@@ -14,6 +14,8 @@ use tauri_plugin_dialog::DialogExt;
 struct ScanStore {
     items: HashMap<String, ScannedItem>,
     allowed_roots: Vec<PathBuf>,
+    /// Bumped on every scan, so a failed cleanup never puts an item back into a newer scan.
+    generation: u64,
 }
 
 struct SysState {
@@ -54,25 +56,27 @@ async fn scan_environment(
         .map(|s| (s.item.id.clone(), s))
         .collect();
     guard.allowed_roots = result.allowed_roots;
+    guard.generation += 1;
     Ok(items)
 }
 
 /// Delete one item from the last scan. Returns the bytes freed.
 #[tauri::command]
 async fn cleanup_item(store: State<'_, Mutex<ScanStore>>, id: String) -> Result<u64, String> {
-    let (item, roots) = {
-        let guard = store.lock().map_err(lock_err)?;
+    // Claim the item: a second request for the same id (a double-click, or React running an
+    // effect twice in development) finds nothing and never deletes the same path concurrently.
+    let (item, roots, generation) = {
+        let mut guard = store.lock().map_err(lock_err)?;
         let item = guard
             .items
-            .get(&id)
-            .cloned()
-            .ok_or("This item is not part of the last scan. Scan again.")?;
-        (item, guard.allowed_roots.clone())
+            .remove(&id)
+            .ok_or("This item is not part of the last scan, or is already being removed.")?;
+        (item, guard.allowed_roots.clone(), guard.generation)
     };
 
     let freed = item.item.size_bytes;
     let item_for_task = item.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         let running = cleanup_engine::running_process_names();
         if let Some(app) = cleanup_engine::blocking_app(&item_for_task, &running) {
             return Err(format!("Close {app} first, then try again."));
@@ -82,9 +86,17 @@ async fn cleanup_item(store: State<'_, Mutex<ScanStore>>, id: String) -> Result<
         cleanup_engine::execute(&item_for_task, &roots, &protected)
     })
     .await
-    .map_err(|e| format!("Cleanup failed: {e}"))??;
+    .map_err(|e| format!("Cleanup failed: {e}"))
+    .and_then(|r| r);
 
-    store.lock().map_err(lock_err)?.items.remove(&id);
+    if let Err(err) = result {
+        // Give the item back so the user can retry, unless a newer scan replaced the store.
+        let mut guard = store.lock().map_err(lock_err)?;
+        if guard.generation == generation {
+            guard.items.insert(id, item);
+        }
+        return Err(err);
+    }
     Ok(freed)
 }
 

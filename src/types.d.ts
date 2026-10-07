@@ -18,4 +18,16 @@ declare global {
     /** App that must be closed before this item can be removed. */
     blocked_by: string | null;
   }
+
+  interface SystemInfo {
+    os_name: string;
+    os_version: string;
+    cpu_usage: number;
+    ram_total: number;
+    ram_used: number;
+    disk_total: number;
+    disk_free: number;
+  }
+
+  type View = 'scan' | 'review' | 'cleanup' | 'settings' | 'about';
 }

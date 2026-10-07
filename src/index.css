@@ -1,51 +1,66 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
+/*
+ * Sweep is a native Mac utility, so it uses the system typeface (SF Pro on macOS)
+ * instead of a web font downloaded at runtime. Mono is reserved for real data:
+ * paths and byte counts.
+ */
+
 :root {
-  /* Dark Theme (Default) */
-  --surface: #0a0a0a;
-  --surface-dim: #0a0a0a;
-  --surface-bright: #151515;
-  --surface-container: #0f0f0f;
-  --on-surface: #f4f4f5;
-  --outline: #27272a;
-  --outline-variant: #3f3f46;
-  --error: #ef4444;
+  /* Dark theme (default) */
+  --surface: #0c0d0f;
+  --surface-dim: #111215;
+  --surface-bright: #1b1d21;
+  --surface-container: #15171a;
+  --surface-sunken: #08090a;
+  --on-surface: #ecedef;
+  --outline: #26292e;
+  --outline-variant: #363a41;
+  --error: #f05252;
   --on-error: #fef2f2;
+  --warning: #e5a50a;
+  --safe: #3fb950;
+  color-scheme: dark;
 }
 
 .light {
-  /* Light Theme Override */
   --surface: #ffffff;
-  --surface-dim: #f8fafc;
-  --surface-bright: #f1f5f9;
-  --surface-container: #f1f5f9;
-  --on-surface: #0f172a;
-  --outline: #e2e8f0;
-  --outline-variant: #cbd5e1;
-  --error: #dc2626;
+  --surface-dim: #f5f6f8;
+  --surface-bright: #eceef1;
+  --surface-container: #ffffff;
+  --surface-sunken: #f5f6f8;
+  --on-surface: #15171a;
+  --outline: #e3e5e9;
+  --outline-variant: #cdd1d7;
+  --error: #d92d2d;
   --on-error: #ffffff;
+  --warning: #b7791f;
+  --safe: #1a7f37;
+  color-scheme: light;
 }
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
   --color-surface: var(--surface);
   --color-surface-dim: var(--surface-dim);
   --color-surface-bright: var(--surface-bright);
   --color-surface-container: var(--surface-container);
+  --color-surface-sunken: var(--surface-sunken);
   --color-on-surface: var(--on-surface);
   --color-outline: var(--outline);
   --color-outline-variant: var(--outline-variant);
-  
-  --color-primary: var(--color-primary); /* Managed via JS style injection */
+
+  --color-primary: var(--color-primary); /* Set from the accent setting in App.tsx */
   --color-on-primary: #ffffff;
-  
+
   --color-error: var(--error);
   --color-on-error: var(--on-error);
+  --color-warning: var(--warning);
+  --color-safe: var(--safe);
 
-  --radius-sm: 0.125rem;
+  --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
   --radius-xl: 0.75rem;
@@ -54,22 +69,34 @@
 
 @layer base {
   body {
-    @apply bg-surface text-on-surface font-sans antialiased selection:bg-primary/30 transition-colors duration-300;
+    @apply bg-surface text-on-surface font-sans antialiased selection:bg-primary/30;
   }
 
-  /* Custom Scrollbar */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
   ::-webkit-scrollbar-track {
-    @apply bg-surface-container;
+    background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-outline-variant hover:bg-outline rounded-full transition-colors;
+    @apply bg-outline-variant rounded-full;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
 }
 
-.terminal-glow {
-  box-shadow: inset 0 0 20px rgba(var(--color-primary-rgb), 0.05);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

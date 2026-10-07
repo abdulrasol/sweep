@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ListChecks } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import ScanView from './views/ScanView';
@@ -6,57 +8,45 @@ import ReviewView from './views/ReviewView';
 import ExecutionView from './views/ExecutionView';
 import SettingsView from './views/SettingsView';
 import AboutView from './views/AboutView';
-import { motion, AnimatePresence } from 'motion/react';
-import { Activity, Zap, ShieldCheck } from 'lucide-react';
 import { invoke } from './lib/tauri';
+import { accentById } from './lib/accents';
 
-interface SystemInfo {
-  os_name: string;
-  os_version: string;
-  cpu_usage: number;
-  ram_total: number;
-  ram_used: number;
-  disk_total: number;
-  disk_free: number;
-}
-
-type View = 'scan' | 'review' | 'execution' | 'settings' | 'about' | 'cleanup';
+const readJson = <T,>(key: string, fallback: T): T => {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? (JSON.parse(saved) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 export default function App() {
   const [activeView, setActiveView] = useState<View>('scan');
-  const [isCleaning, setIsCleaning] = useState(false);
   const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null);
+  const [version, setVersion] = useState('');
 
-  const fetchSysInfo = async () => {
-    try {
-      const info = await invoke<SystemInfo>('get_system_info');
-      setSysInfo(info);
-    } catch (err) {
-      console.error("Failed to fetch system info:", err);
-    }
-  };
+  // Items handed to the Clean step. Null when nothing has been started.
+  const [cleanRun, setCleanRun] = useState<CleanupItem[] | null>(null);
+  const [cleaning, setCleaning] = useState(false);
+
+  const [scanPath, setScanPath] = useState(() => localStorage.getItem('sweep_path') || '');
+  const [selectedModules, setSelectedModules] = useState<string[]>(() =>
+    readJson('sweep_modules', ['flutter', 'node', 'rust', 'xcode']),
+  );
+  const [ignoredPaths, setIgnoredPaths] = useState<string[]>(() => readJson('sweep_ignored', []));
+  const [accent, setAccent] = useState(() => localStorage.getItem('sweep_accent') || 'emerald');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
+    localStorage.getItem('sweep_theme') === 'light' ? 'light' : 'dark',
+  );
 
   useEffect(() => {
+    const fetchSysInfo = () =>
+      invoke<SystemInfo>('get_system_info').then(setSysInfo).catch(() => undefined);
     fetchSysInfo();
     const interval = setInterval(fetchSysInfo, 3000);
+    invoke<string>('get_app_version').then(setVersion).catch(() => undefined);
     return () => clearInterval(interval);
   }, []);
-  
-  const [scanPath, setScanPath] = useState(() => localStorage.getItem('sweep_path') || '');
-  const [selectedModules, setSelectedModules] = useState<string[]>(() => {
-    const saved = localStorage.getItem('sweep_modules');
-    return saved ? JSON.parse(saved) : ['flutter', 'node', 'rust', 'xcode'];
-  });
-  const [ignoredPaths, setIgnoredPaths] = useState<string[]>(() => {
-    const saved = localStorage.getItem('sweep_ignored');
-    return saved ? JSON.parse(saved) : [];
-  });
-  
-  const [selectedItems, setSelectedItems] = useState<CleanupItem[]>([]);
-  const [accent, setAccent] = useState(() => localStorage.getItem('sweep_accent') || 'emerald');
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('sweep_theme') as any) || 'dark');
-  
-  const [verboseLogging, setVerboseLogging] = useState(() => localStorage.getItem('sweep_verbose') === 'true');
 
   useEffect(() => {
     localStorage.setItem('sweep_path', scanPath);
@@ -64,147 +54,120 @@ export default function App() {
     localStorage.setItem('sweep_ignored', JSON.stringify(ignoredPaths));
     localStorage.setItem('sweep_accent', accent);
     localStorage.setItem('sweep_theme', theme);
-    localStorage.setItem('sweep_verbose', String(verboseLogging));
     localStorage.removeItem('sweep_auto_purge');
-  }, [scanPath, selectedModules, ignoredPaths, accent, theme, verboseLogging]);
+    localStorage.removeItem('sweep_verbose');
+  }, [scanPath, selectedModules, ignoredPaths, accent, theme]);
 
   useEffect(() => {
-    document.documentElement.className = theme;
-    const colors: Record<string, string> = {
-      emerald: '#10b981',
-      blue: '#3b82f6',
-      violet: '#8b5cf6',
-      rose: '#f43f5e',
-      amber: '#f59e0b'
-    };
-    document.documentElement.style.setProperty('--color-primary', colors[accent]);
-    
-    const rgb = accent === 'emerald' ? '16, 185, 129' : 
-                accent === 'blue' ? '59, 130, 246' :
-                accent === 'violet' ? '139, 92, 246' :
-                accent === 'rose' ? '244, 63, 94' : '245, 158, 11';
-    document.documentElement.style.setProperty('--color-primary-rgb', rgb);
+    const root = document.documentElement;
+    const a = accentById(accent);
+    root.className = theme;
+    root.style.setProperty('--color-primary', a.hex);
+    root.style.setProperty('--color-primary-rgb', a.rgb);
   }, [accent, theme]);
 
-  const handleInitiateScan = (path: string, modules: string[]) => {
+  const navigate = (view: View) => {
+    if (cleaning) return; // Stay on the Clean step until the run stops.
+    if (view !== 'cleanup') setCleanRun(null);
+    setActiveView(view);
+  };
+
+  const startScan = (path: string, modules: string[]) => {
     setScanPath(path);
     setSelectedModules(modules);
     setActiveView('review');
   };
 
-  const handleIgnorePath = (path: string) => {
-    setIgnoredPaths(prev => [...new Set([...prev, path])]);
+  const startCleaning = (items: CleanupItem[]) => {
+    setCleanRun(items);
+    setActiveView('cleanup');
   };
 
-  const renderViewContent = () => {
-    if (isCleaning) {
-      return (
-        <ExecutionView 
-          items={selectedItems} 
-          verbose={verboseLogging}
-          onComplete={() => {
-            setIsCleaning(false);
-            setActiveView('scan');
-          }} 
-        />
-      );
-    }
-
+  const renderView = () => {
     switch (activeView) {
       case 'scan':
-        return (
-          <ScanView 
-            initialPath={scanPath}
-            initialModules={selectedModules}
-            onInitiate={handleInitiateScan} 
-          />
-        );
+        return <ScanView initialPath={scanPath} initialModules={selectedModules} onScan={startScan} />;
       case 'review':
         return (
-          <ReviewView 
+          <ReviewView
             scanPath={scanPath}
             selectedModules={selectedModules}
             ignoredPaths={ignoredPaths}
-            sysInfo={sysInfo}
-            onIgnore={handleIgnorePath}
-            onStartCleaning={(items: CleanupItem[]) => {
-              setSelectedItems(items);
-              setIsCleaning(true);
-            }} 
+            onIgnore={(path) => setIgnoredPaths(prev => [...new Set([...prev, path])])}
+            onStartCleaning={startCleaning}
+            onChangeScope={() => setActiveView('scan')}
           />
         );
       case 'cleanup':
+        if (cleanRun) {
+          return (
+            <ExecutionView
+              items={cleanRun}
+              onRunningChange={setCleaning}
+              onScanAgain={() => navigate('review')}
+              onChangeScope={() => navigate('scan')}
+            />
+          );
+        }
         return (
-          <div className="h-full flex flex-col items-center justify-center space-y-6 text-center px-6">
-            <div className="w-20 h-20 rounded-3xl bg-primary/10 border border-primary/20 flex items-center justify-center shadow-inner">
-               <Activity className="w-10 h-10 text-primary animate-pulse" />
-            </div>
-            <div className="space-y-2">
-              <h2 className="text-xl font-bold tracking-tight text-on-surface">Purge Engine: Standing By</h2>
-              <p className="text-xs text-on-surface/40 max-w-sm leading-relaxed">
-                The high-performance cleanup sequence is armed and ready. Initiate a scan in <span className="text-primary font-bold">Target Scope</span> to identify artifacts for removal.
+          <div className="h-full flex flex-col items-center justify-center gap-4 text-center px-6">
+            <ListChecks className="w-8 h-8 text-on-surface/30" strokeWidth={1.5} />
+            <div className="space-y-1.5">
+              <h2 className="text-lg font-semibold">Nothing is being cleaned</h2>
+              <p className="text-sm text-on-surface/60 max-w-sm">
+                Scan your projects, pick what to remove in Review, and the cleanup runs here.
               </p>
             </div>
-            <button 
-              onClick={() => setActiveView('scan')}
-              className="flex items-center gap-3 px-8 py-3 bg-on-surface text-surface rounded-xl font-bold text-[10px] uppercase tracking-[0.2em] hover:brightness-90 transition-all active:scale-95"
+            <button
+              onClick={() => navigate('review')}
+              className="mt-2 px-4 py-2 rounded-lg bg-on-surface text-surface text-sm font-medium hover:opacity-90 transition-opacity"
             >
-              <Zap className="w-3.5 h-3.5 fill-current" />
-              Go to Target Scope
+              Go to Review
             </button>
-            <div className="pt-8 flex items-center gap-6 opacity-20">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4" />
-                <span className="text-[10px] font-mono uppercase">Root Authorized</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-                <span className="text-[10px] font-mono uppercase">Engine Warm</span>
-              </div>
-            </div>
           </div>
         );
       case 'settings':
         return (
-          <SettingsView 
+          <SettingsView
             accent={accent}
             onAccentChange={setAccent}
             theme={theme}
             onThemeChange={setTheme}
-            verbose={verboseLogging}
-            onVerboseChange={setVerboseLogging}
+            ignoredPaths={ignoredPaths}
+            onUnhide={(path) => setIgnoredPaths(prev => prev.filter(p => p !== path))}
+            onUnhideAll={() => setIgnoredPaths([])}
           />
         );
       case 'about':
-        return <AboutView />;
-      default:
-        return <ScanView initialPath={scanPath} initialModules={selectedModules} onInitiate={handleInitiateScan} />;
+        return <AboutView version={version} />;
     }
   };
 
   return (
-    <div className="flex h-screen bg-surface text-on-surface selection:bg-primary/20 overflow-hidden font-sans">
-      <Sidebar activeView={activeView} onViewChange={(v) => setActiveView(v as View)} sysInfo={sysInfo} />
-      <div className="flex-1 flex flex-col overflow-hidden relative">
-        <Header 
-          accent={accent} 
-          setAccent={setAccent} 
-          theme={theme} 
+    <div className="flex h-screen bg-surface text-on-surface overflow-hidden">
+      <Sidebar activeView={activeView} onNavigate={navigate} locked={cleaning} sysInfo={sysInfo} />
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <Header
+          scanPath={scanPath}
+          accent={accent}
+          setAccent={setAccent}
+          theme={theme}
           setTheme={setTheme}
-          ignoredCount={ignoredPaths.length}
-          onClearIgnores={() => setIgnoredPaths([])}
+          hiddenCount={ignoredPaths.length}
+          onShowHidden={() => navigate('settings')}
+          version={version}
         />
-        <main className="flex-1 overflow-hidden bg-surface-dim/30 relative">
+        <main className="flex-1 overflow-hidden bg-surface-dim relative">
           <AnimatePresence mode="wait">
-            <motion.div 
-              key={activeView + (isCleaning ? '-clean' : '')}
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
-              transition={{ duration: 0.2 }}
+            <motion.div
+              key={activeView}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.12 }}
               className="h-full overflow-y-auto"
             >
-              {renderViewContent()}
+              {renderView()}
             </motion.div>
           </AnimatePresence>
         </main>

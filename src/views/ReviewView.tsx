@@ -5,23 +5,13 @@ import {
 } from 'lucide-react';
 import { invoke, formatBytes } from '../lib/tauri';
 
-interface SystemInfo {
-  os_name: string;
-  os_version: string;
-  cpu_usage: number;
-  ram_total: number;
-  ram_used: number;
-  disk_total: number;
-  disk_free: number;
-}
-
 interface ReviewViewProps {
   scanPath: string;
   selectedModules: string[];
   ignoredPaths: string[];
-  sysInfo: SystemInfo | null;
   onIgnore: (path: string) => void;
   onStartCleaning: (items: CleanupItem[]) => void;
+  onChangeScope: () => void;
 }
 
 type SafetyFilter = 'ALL' | SafetyLevel;
@@ -30,8 +20,8 @@ type SortKey = 'size' | 'name';
 const GROUP_ORDER = ['Projects', 'Dev Tools', 'AI Tools', 'Editors', 'System & Apps'];
 
 const SAFETY_STYLE: Record<SafetyLevel, { badge: string; dot: string; label: string }> = {
-  SAFE: { badge: 'bg-primary/10 text-primary border-primary/25', dot: 'bg-primary', label: 'Safe' },
-  REVIEW: { badge: 'bg-amber-500/10 text-amber-500 border-amber-500/30', dot: 'bg-amber-500', label: 'Review' },
+  SAFE: { badge: 'bg-safe/10 text-safe border-safe/30', dot: 'bg-safe', label: 'Safe' },
+  REVIEW: { badge: 'bg-warning/10 text-warning border-warning/30', dot: 'bg-warning', label: 'Review' },
   DANGER: { badge: 'bg-error/10 text-error border-error/30', dot: 'bg-error', label: 'Danger' },
 };
 
@@ -89,7 +79,7 @@ function Checkbox({ checked, partial, disabled, onClick, label }: {
   );
 }
 
-export default function ReviewView({ scanPath, selectedModules, ignoredPaths, onIgnore, onStartCleaning }: ReviewViewProps) {
+export default function ReviewView({ scanPath, selectedModules, ignoredPaths, onIgnore, onStartCleaning, onChangeScope }: ReviewViewProps) {
   const [items, setItems] = useState<CleanupItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -226,7 +216,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
     return (
       <div className="flex flex-col items-center justify-center h-full space-y-4">
         <RefreshCw className="w-8 h-8 text-primary animate-spin opacity-60" />
-        <p className="text-sm text-on-surface/60">Scanning {selectedModules.length} modules…</p>
+        <p className="text-sm text-on-surface/60">Scanning with {selectedModules.length} {selectedModules.length === 1 ? 'tool' : 'tools'}…</p>
         <p className="text-xs font-mono text-on-surface/40 max-w-md truncate">{scanPath}</p>
       </div>
     );
@@ -256,7 +246,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
         </div>
 
         <div className="text-right">
-          <div className="text-[11px] uppercase tracking-wider text-on-surface/50 font-semibold">Selected</div>
+          <div className="text-xs text-on-surface/55">Selected</div>
           <div className="flex items-baseline justify-end gap-1.5">
             <span className="text-4xl font-light tracking-tight tabular-nums">{selValue}</span>
             <span className="text-sm text-on-surface/60 font-mono">{selUnit}</span>
@@ -268,7 +258,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
           <button
             onClick={() => onStartCleaning(selectedItems)}
             disabled={!canStart}
-            className="px-5 py-2.5 bg-on-surface text-surface rounded-lg font-semibold text-xs uppercase tracking-wider hover:brightness-90 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-5 py-2.5 bg-on-surface text-surface rounded-lg font-medium text-sm hover:opacity-90 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Remove selected
           </button>
@@ -295,7 +285,12 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
             />
           </div>
         )}
-        {scanError && <p className="basis-full text-xs text-error font-medium">Scan failed: {scanError}</p>}
+        {scanError && (
+          <p className="basis-full text-sm text-error">
+            Scan failed: {scanError}{' '}
+            <button onClick={onChangeScope} className="underline">Change scope</button>
+          </p>
+        )}
       </section>
 
       {/* Filters */}
@@ -402,8 +397,11 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
         {visible.length === 0 && (
           <div className="p-10 text-center space-y-3">
             <p className="text-sm text-on-surface/60">
-              {items.length === 0 ? 'Nothing to clean in the selected modules.' : 'No items match these filters.'}
+              {items.length === 0 ? 'Nothing to clean with the tools you turned on.' : 'No items match these filters.'}
             </p>
+            {items.length === 0 && !scanError && (
+              <button onClick={onChangeScope} className="text-xs text-primary hover:underline">Change folder or tools</button>
+            )}
             {filtersActive && (
               <button onClick={clearFilters} className="text-xs text-primary hover:underline">Clear filters</button>
             )}
@@ -416,7 +414,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
           return (
             <div key={group}>
               {groupFilter === 'ALL' && (
-                <div className="flex items-center gap-3 px-4 py-2 bg-surface-bright/60 border-b border-outline text-[11px] uppercase tracking-wider font-semibold text-on-surface/60">
+                <div className="flex items-center gap-3 px-4 py-2 bg-surface-bright/60 border-b border-outline text-xs font-semibold text-on-surface/70">
                   <Checkbox
                     checked={sel.all}
                     partial={sel.some}
@@ -425,7 +423,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
                     label={`Select all in ${group}`}
                   />
                   <span>{group}</span>
-                  <span className="ml-auto normal-case tracking-normal font-mono">{list.length} · {formatBytes(sum(list))}</span>
+                  <span className="ml-auto font-normal font-mono tabular-nums">{list.length} · {formatBytes(sum(list))}</span>
                 </div>
               )}
 
@@ -476,7 +474,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
                       <div className="flex flex-col items-end gap-1.5 min-w-[150px]">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-mono font-medium tabular-nums whitespace-nowrap">{formatBytes(item.size_bytes)}</span>
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${style.badge}`}>
+                          <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded border ${style.badge}`}>
                             {style.label}
                           </span>
                         </div>
