@@ -38,7 +38,7 @@
 - [ ] 2.1 Xcode: DeviceSupport والـ Archives والـ Previews (عالي) — الكود جاهز ومختبَر، بانتظار فحص على الماك
 - [ ] 2.2 المحاكيات و Simulator runtimes (عالي) — الكود جاهز ومختبَر، بانتظار فحص على الماك
 - [x] 2.3 CocoaPods (متوسط) (أُنجزت 2026-10-07)
-- [ ] 2.4 Flutter و Dart (عالي)
+- [x] 2.4 Flutter و Dart (عالي) (أُنجزت 2026-10-07)
 - [ ] 2.5 Gradle و Android SDK و Android Studio (عالي)
 - [ ] 2.6 Node: الكاشات العالمية (عالي)
 - [ ] 2.7 Rust: registry والـ toolchains (متوسط)
