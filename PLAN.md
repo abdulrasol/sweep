@@ -430,8 +430,9 @@ for e in WalkDir::new(p).follow_links(false) {
 **الحل:** - `~/.cargo/registry/cache` و `registry/src` و `~/.cargo/git/checkouts`: SAFE.
 - اعرض `rustup toolchain list` واحذف المختار بـ `rustup toolchain uninstall`.
 - خيار للمشاريع النشطة: امسح `target/*/incremental` بس بدل الـ target كله.
+- عند التنفيذ: الـ toolchains تنقرا من `~/.rustup/toolchains` و `settings.toml` بدون تشغيل أي أمر وقت الفحص. الـ toolchain الافتراضي ما ينعرض، ويُذكر بوصف كل toolchain ثاني على إنه «kept». والـ toolchains المثبتة بـ `rustup override` ما تنعرض، والمربوطة بـ `toolchain link` ما نلمسها. الحذف بـ `rustup toolchain uninstall` مع `RUSTUP_HOME` مثبت، ونتأكد مرة ثانية قبل التشغيل إن الـ toolchain بعده قابل للحذف. خيار المشاريع النشطة صار موديول منفصل اسمه `rust_incremental`.
 
-**الملفات:** `rules, native_commands.rs`
+**الملفات:** `rules, native_commands.rs, rust.rs`
 
 **متى نعتبرها خلصت:** الـ toolchains تطلع مع إشارة على الافتراضي.
 

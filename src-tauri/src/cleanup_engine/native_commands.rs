@@ -19,6 +19,12 @@ pub enum NativeCommand {
     NpmCacheClean { npm: PathBuf, cache: PathBuf },
     /// `pnpm store prune --store-dir <store>`: removes only packages no project uses.
     PnpmStorePrune { pnpm: PathBuf, store: PathBuf },
+    /// `rustup toolchain uninstall <toolchain>` with `RUSTUP_HOME=<rustup_home>`.
+    RustupToolchainUninstall {
+        rustup: PathBuf,
+        rustup_home: PathBuf,
+        toolchain: String,
+    },
 }
 
 /// Run the command. Returns the bytes freed when the command measures them itself.
@@ -57,6 +63,27 @@ pub(super) fn run(cmd: &NativeCommand) -> Result<Option<u64>, String> {
                     .env("PATH", child_path(pnpm)),
             )?;
             Ok(Some(before.saturating_sub(super::disk_usage(store))))
+        }
+        NativeCommand::RustupToolchainUninstall {
+            rustup,
+            rustup_home,
+            toolchain,
+        } => {
+            check(rustup, "rustup", rustup_home, ".rustup")?;
+            // Check again at run time: never the default, an override or an odd name.
+            if !super::rust::removable_toolchains(rustup_home).contains(toolchain) {
+                return Err(format!(
+                    "Sweep refused to uninstall {toolchain}: it is in use or not installed."
+                ));
+            }
+            output(
+                "rustup toolchain uninstall",
+                Command::new(rustup)
+                    .args(["toolchain", "uninstall"])
+                    .arg(toolchain)
+                    .env("RUSTUP_HOME", rustup_home),
+            )
+            .map(|()| None)
         }
     }
 }
@@ -125,7 +152,8 @@ fn search_dirs(home: &Path) -> Vec<PathBuf> {
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
     for rel in [
-        // Node version managers and standalone installers
+        // Rust, Node version managers and standalone installers
+        ".cargo/bin",
         ".volta/bin",
         "Library/pnpm",
         ".local/share/pnpm",
@@ -236,6 +264,32 @@ mod tests {
         assert!(
             called(d.path()).starts_with(&format!("store prune --store-dir {} ", store.display()))
         );
+    }
+
+    #[test]
+    fn rustup_uninstalls_only_removable_toolchains() {
+        let d = TempDir::new().unwrap();
+        let rustup = fake_tool(d.path(), "rustup");
+        let home = d.path().join(".rustup");
+        fs::create_dir_all(home.join("toolchains/stable-aarch64-apple-darwin/bin")).unwrap();
+        fs::create_dir_all(home.join("toolchains/nightly-aarch64-apple-darwin/bin")).unwrap();
+        fs::write(
+            home.join("settings.toml"),
+            "default_toolchain = \"stable-aarch64-apple-darwin\"\n",
+        )
+        .unwrap();
+        let cmd = |t: &str| NativeCommand::RustupToolchainUninstall {
+            rustup: rustup.clone(),
+            rustup_home: home.clone(),
+            toolchain: t.to_string(),
+        };
+        // Negative: the default, a missing toolchain and an odd name are refused.
+        for t in ["stable-aarch64-apple-darwin", "1.70.0-x", "--help"] {
+            assert!(run(&cmd(t)).is_err(), "{t} should be refused");
+        }
+        assert!(!d.path().join("called.txt").exists());
+        run(&cmd("nightly-aarch64-apple-darwin")).unwrap();
+        assert!(called(d.path()).starts_with("toolchain uninstall nightly-aarch64-apple-darwin "));
     }
 
     #[test]

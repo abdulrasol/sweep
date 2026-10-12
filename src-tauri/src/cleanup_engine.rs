@@ -21,6 +21,7 @@ mod android;
 mod dart;
 mod native_commands;
 mod node;
+mod rust;
 mod simulators;
 mod versions;
 
@@ -162,6 +163,19 @@ static PROJECT_RULES: &[ProjectRule] = &[
         // Upgraded to SAFE when Cargo's CACHEDIR.TAG is present.
         targets: &[t("target", Review)],
         blocked_if_running: &[],
+    },
+    // For projects you are still working on: only the incremental cache, so the next
+    // build keeps its compiled dependencies (PLAN 2.7).
+    ProjectRule {
+        module: "rust_incremental",
+        name: "Rust",
+        markers: &["Cargo.toml"],
+        label: "Rust Incremental Cache",
+        targets: &[
+            t("target/debug/incremental", Safe),
+            t("target/release/incremental", Safe),
+        ],
+        blocked_if_running: &["cargo", "rust-analyzer"],
     },
     ProjectRule {
         module: "php",
@@ -387,6 +401,30 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         min_bytes: 1,
     },
     g(
+        "rust",
+        "Cargo Registry Downloads",
+        ".cargo/registry/cache",
+        "Package Cache",
+        Safe,
+        &["cargo"],
+    ),
+    g(
+        "rust",
+        "Cargo Registry Sources",
+        ".cargo/registry/src",
+        "Package Cache",
+        Safe,
+        &["cargo"],
+    ),
+    g(
+        "rust",
+        "Cargo Git Checkouts",
+        ".cargo/git/checkouts",
+        "Package Cache",
+        Safe,
+        &["cargo"],
+    ),
+    g(
         "android",
         "Android AVD Images",
         ".android/avd",
@@ -591,6 +629,30 @@ static GLOBAL_RULES: &[GlobalRule] = &[
 #[cfg(target_os = "windows")]
 static GLOBAL_RULES: &[GlobalRule] = &[
     g(
+        "rust",
+        "Cargo Registry Downloads",
+        ".cargo/registry/cache",
+        "Package Cache",
+        Safe,
+        &["cargo"],
+    ),
+    g(
+        "rust",
+        "Cargo Registry Sources",
+        ".cargo/registry/src",
+        "Package Cache",
+        Safe,
+        &["cargo"],
+    ),
+    g(
+        "rust",
+        "Cargo Git Checkouts",
+        ".cargo/git/checkouts",
+        "Package Cache",
+        Safe,
+        &["cargo"],
+    ),
+    g(
         "android",
         "Android AVD Images",
         ".android/avd",
@@ -661,6 +723,30 @@ static GLOBAL_RULES: &[GlobalRule] = &[
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 static GLOBAL_RULES: &[GlobalRule] = &[
+    g(
+        "rust",
+        "Cargo Registry Downloads",
+        ".cargo/registry/cache",
+        "Package Cache",
+        Safe,
+        &["cargo"],
+    ),
+    g(
+        "rust",
+        "Cargo Registry Sources",
+        ".cargo/registry/src",
+        "Package Cache",
+        Safe,
+        &["cargo"],
+    ),
+    g(
+        "rust",
+        "Cargo Git Checkouts",
+        ".cargo/git/checkouts",
+        "Package Cache",
+        Safe,
+        &["cargo"],
+    ),
     g(
         "android",
         "Android AVD Images",
@@ -863,6 +949,7 @@ pub fn scan_directory(
     dart::collect(env, &enabled, &mut candidates);
     android::collect(env, &enabled, &mut candidates);
     node::collect(env, &enabled, &mut candidates);
+    rust::collect(env, &enabled, &mut candidates);
     collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
 
     candidates.retain(|c| !is_ignored(&c.path));
@@ -2142,6 +2229,51 @@ mod tests {
         assert!(find(&r, "Library/Caches/Google").is_none());
         // Negative: the newest version is never listed.
         assert!(find(&r, "Google/AndroidStudio2024.2").is_none());
+    }
+
+    #[test]
+    fn cargo_caches_are_safe_and_config_stays() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(
+            &home.join(".cargo/registry/cache/index.crates.io-1/serde-1.0.crate"),
+            5000,
+        );
+        write(
+            &home.join(".cargo/registry/src/index.crates.io-1/serde-1.0/lib.rs"),
+            5000,
+        );
+        write(
+            &home.join(".cargo/git/checkouts/repo-abc/1234/lib.rs"),
+            5000,
+        );
+        // Negative: installed binaries, settings and the registry index stay.
+        write(&home.join(".cargo/bin/cargo"), 5000);
+        write(&home.join(".cargo/config.toml"), 100);
+        write(&home.join(".cargo/registry/index/x"), 5000);
+        let r = scan(d.path(), &["rust"]);
+        assert_eq!(r.items.len(), 3, "{:?}", paths(&r));
+        assert!(r.items.iter().all(|i| i.item.status == Safe));
+    }
+
+    #[test]
+    fn rust_incremental_keeps_compiled_dependencies() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("Cargo.toml"), 10);
+        write(&p.join("target/debug/incremental/app-1/s"), 5000);
+        write(&p.join("target/release/incremental/app-2/s"), 5000);
+        write(&p.join("target/debug/deps/libserde.rlib"), 5000);
+        let r = scan(d.path(), &["rust_incremental"]);
+        let ps = paths(&r);
+        assert_eq!(ps.len(), 2, "{ps:?}");
+        assert!(ps.iter().all(|p| p.ends_with("incremental")));
+        assert!(find(&r, "deps").is_none());
+
+        // With the full Rust module on, the whole target folder covers both.
+        let r = scan(d.path(), &["rust", "rust_incremental"]);
+        assert_eq!(paths(&r).len(), 1);
+        assert!(paths(&r)[0].ends_with("app/target"));
     }
 
     #[test]
