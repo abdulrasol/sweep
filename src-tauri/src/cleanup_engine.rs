@@ -104,6 +104,8 @@ struct Target {
     /// Path relative to the project root. May contain `*` (glob).
     rel: &'static str,
     safety: Safety,
+    /// A file that must exist inside the target folder for it to be listed (empty = no check).
+    needs: &'static str,
 }
 
 struct ProjectRule {
@@ -118,7 +120,15 @@ struct ProjectRule {
 }
 
 const fn t(rel: &'static str, safety: Safety) -> Target {
-    Target { rel, safety }
+    Target {
+        rel,
+        safety,
+        needs: "",
+    }
+}
+
+const fn tn(rel: &'static str, safety: Safety, needs: &'static str) -> Target {
+    Target { rel, safety, needs }
 }
 
 use Safety::{Danger, Review, Safe};
@@ -213,6 +223,24 @@ static PROJECT_RULES: &[ProjectRule] = &[
             t(".tox", Safe),
         ],
         blocked_if_running: &[],
+    },
+    ProjectRule {
+        module: "python_venv",
+        name: "Python",
+        markers: &[
+            "pyproject.toml",
+            "requirements.txt",
+            "setup.py",
+            "setup.cfg",
+            "Pipfile",
+            "tox.ini",
+        ],
+        label: "Virtual Environments",
+        targets: &[
+            tn(".venv", Review, "pyvenv.cfg"),
+            tn("venv", Review, "pyvenv.cfg"),
+        ],
+        blocked_if_running: &["python", "python3"],
     },
     ProjectRule {
         module: "android",
@@ -1281,6 +1309,15 @@ fn collect_projects(
                 for path in expand(dir, target.rel) {
                     if fs::symlink_metadata(&path).is_err() {
                         continue;
+                    }
+                    if !target.needs.is_empty() {
+                        let ok = is_real_dir(&path)
+                            && fs::symlink_metadata(path.join(target.needs))
+                                .map(|m| m.is_file())
+                                .unwrap_or(false);
+                        if !ok {
+                            continue;
+                        }
                     }
                     let project = dir
                         .file_name()
@@ -2695,5 +2732,87 @@ mod tests {
         assert!(find(&r, "config.toml").is_none());
         assert!(find(&r, ".pypirc").is_none());
         assert!(find(&r, "pip.conf").is_none());
+    }
+
+    #[test]
+    fn python_venv_with_pyvenv_cfg_is_review() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("requirements.txt"), 10);
+        write(&p.join(".venv/pyvenv.cfg"), 10);
+        write(&p.join(".venv/bin/python"), 5000);
+        write(&p.join("venv/pyvenv.cfg"), 10);
+        write(&p.join("venv/lib/x"), 5000);
+
+        let r = scan(d.path(), &["python_venv"]);
+        let ps = paths(&r);
+        assert_eq!(ps.len(), 2, "{ps:?}");
+        assert!(find(&r, "app/.venv").is_some());
+        assert!(find(&r, "app/venv").is_some());
+        assert!(r.items.iter().all(|i| i.item.status == Review));
+    }
+
+    #[test]
+    fn folders_named_venv_without_pyvenv_cfg_stay() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("requirements.txt"), 10);
+        write(&p.join("venv/data.txt"), 5000);
+        write(&p.join(".venv/notes.txt"), 5000);
+
+        let r = scan(d.path(), &["python_venv"]);
+        assert!(r.items.is_empty(), "unexpected items: {:?}", paths(&r));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_venv_is_never_listed() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("requirements.txt"), 10);
+        let real_env = d.path().join("real_env");
+        write(&real_env.join("pyvenv.cfg"), 10);
+        write(&real_env.join("bin/python"), 5000);
+
+        std::os::unix::fs::symlink(&real_env, p.join(".venv")).unwrap();
+
+        let r = scan(d.path(), &["python_venv"]);
+        assert!(r.items.is_empty(), "unexpected items: {:?}", paths(&r));
+        assert!(real_env.exists());
+    }
+
+    #[test]
+    fn python_modules_stay_separate() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("pyproject.toml"), 10);
+        write(&p.join("__pycache__/a.pyc"), 5000);
+        write(&p.join(".venv/pyvenv.cfg"), 10);
+        write(&p.join(".venv/bin/python"), 5000);
+
+        let r_py = scan(d.path(), &["python"]);
+        let ps_py = paths(&r_py);
+        assert_eq!(ps_py.len(), 1, "{ps_py:?}");
+        assert!(ps_py[0].ends_with("__pycache__"));
+
+        let r_venv = scan(d.path(), &["python_venv"]);
+        let ps_venv = paths(&r_venv);
+        assert_eq!(ps_venv.len(), 1, "{ps_venv:?}");
+        assert!(ps_venv[0].ends_with(".venv"));
+
+        let r_both = scan(d.path(), &["python", "python_venv"]);
+        assert_eq!(paths(&r_both).len(), 2);
+    }
+
+    #[test]
+    fn folder_not_at_project_root() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("requirements.txt"), 10);
+        write(&p.join("sub/venv/pyvenv.cfg"), 10);
+        write(&p.join("sub/venv/bin/python"), 5000);
+
+        let r = scan(d.path(), &["python_venv"]);
+        assert!(r.items.is_empty(), "unexpected items: {:?}", paths(&r));
     }
 }
