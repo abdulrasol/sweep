@@ -46,7 +46,7 @@
 - [x] 2.5 Gradle و Android SDK و Android Studio (عالي) (أُنجزت 2026-10-07)
 - [x] 2.6 Node: الكاشات العالمية (عالي) (أُنجزت 2026-10-07)
 - [x] 2.7 Rust: registry والـ toolchains (متوسط) (أُنجزت 2026-10-17)
-- [ ] 2.8 PHP و Laravel (متوسط)
+- [x] 2.8 PHP و Laravel (متوسط) (أُنجزت 2026-10-17)
 - [ ] 2.9 Python (متوسط)
 - [ ] 2.10 Go (متوسط)
 - [ ] 2.11 المحررات: VS Code و Cursor و JetBrains (متوسط)
@@ -447,6 +447,8 @@ for e in WalkDir::new(p).follow_links(false) {
 **ليش:** كاش Composer وملفات Laravel logs تكبر مع الوقت.
 
 **الحل:** `~/Library/Caches/composer` أو `~/.composer/cache` بحالة SAFE (أو `composer clear-cache`)، و `storage/logs/*.log` بكل مشروع Laravel بحالة SAFE.
+
+عند التنفيذ: كاش Composer صار بقاعدة عالمية لكل نظام (ماك: `Library/Caches/composer` و `.composer/cache`، لينكس: `.cache/composer` و `.composer/cache`، ويندوز: `AppData/Local/Composer`) ويُمسح المجلد مباشرة بدل `composer clear-cache`. ملف `auth.json` والإعدادات والحزم العالمية داخل `~/.composer` ما تنلمس أبداً. وملفات `storage/logs/*.log` انضافت لقاعدة المشروع.
 
 **الملفات:** `rules`
 
