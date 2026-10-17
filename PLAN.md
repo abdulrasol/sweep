@@ -47,7 +47,9 @@
 - [x] 2.6 Node: الكاشات العالمية (عالي) (أُنجزت 2026-10-07)
 - [x] 2.7 Rust: registry والـ toolchains (متوسط) (أُنجزت 2026-10-17)
 - [x] 2.8 PHP و Laravel (متوسط) (أُنجزت 2026-10-17)
-- [ ] 2.9 Python (متوسط)
+- [ ] 2.9 Python (متوسط) — 2.9a منجزة (2026-10-17): كاشات pip و uv و Poetry وكاشات المشاريع. المتبقي 2.9b و 2.9c
+- [ ] 2.9b Python: بيئات .venv و venv (متوسط)
+- [ ] 2.9c Python: Conda بالأمر الرسمي (متوسط)
 - [ ] 2.10 Go (متوسط)
 - [ ] 2.11 المحررات: VS Code و Cursor و JetBrains (متوسط)
 - [ ] 2.12 Docker و OrbStack و Colima (عالي)
@@ -464,6 +466,8 @@ for e in WalkDir::new(p).follow_links(false) {
 - بالمشاريع: `__pycache__` و `.pytest_cache` و `.mypy_cache` و `.ruff_cache` و `.tox`: SAFE.
 - `.venv` و `venv` (تأكد بوجود `pyvenv.cfg`): REVIEW، ونقترحها بس للمشاريع المهملة.
 - Conda: `conda clean -a` بدل مسح pkgs يدوياً.
+
+عند التنفيذ: قُسمت المهمة لثلاث مراحل. **2.9a (أُنجزت 2026-10-17):** كاشات pip و uv و Poetry العالمية (SAFE)، وقاعدة مشاريع Python بكاشات `__pycache__` و `.pytest_cache` و `.mypy_cache` و `.ruff_cache` و `.tox` (SAFE). **2.9b:** بيئات `.venv` و `venv` بحالة REVIEW بشرط وجود `pyvenv.cfg` داخلها، وتحتاج ميزة جديدة بالمحرك (شرط وجود ملف داخل الهدف). **2.9c:** Conda بالأمر الرسمي `conda clean -a`، ويحتاج نوع أمر جديد بـ `native_commands.rs`. قواعد Conda envs الحالية (DANGER) ما تغيّرت.
 
 **الملفات:** `rules`
 
