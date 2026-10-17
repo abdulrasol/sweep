@@ -32,7 +32,7 @@ const PROJECT_MODULES: ModuleDef[] = [
   { id: 'rust', title: 'Rust / Cargo', icon: SiRust, color: '#CE422B', description: 'target folders, Cargo registry caches and toolchains other than your default.', review: true },
   { id: 'rust_incremental', title: 'Rust incremental only', icon: SiRust, color: '#CE422B', description: 'For projects you still work on: only target/*/incremental, so compiled dependencies stay.' },
   { id: 'android', title: 'Android / Kotlin', icon: SiKotlin, color: '#7F52FF', description: 'Gradle builds and caches, unused SDK system images, old build-tools and old Android Studio versions.', review: true },
-  { id: 'php', title: 'PHP / Laravel', icon: SiPhp, color: '#777BB4', description: 'vendor folders and Laravel storage logs.' },
+  { id: 'php', title: 'PHP / Laravel', icon: SiPhp, color: '#777BB4', description: 'vendor folders, Laravel storage logs, and the global Composer cache.' },
   { id: 'dotnet', title: '.NET / C#', icon: SiDotnet, color: '#512BD4', description: 'bin and obj folders, and the NuGet package cache.' },
   { id: 'ruby', title: 'Ruby on Rails', icon: SiRubyonrails, color: '#CC0000', description: 'vendor/bundle and tmp caches.' },
   { id: 'cpp', title: 'C++ / CMake', icon: SiCplusplus, color: '#00599C', description: 'CMake build and out folders.' },

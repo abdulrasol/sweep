@@ -187,6 +187,7 @@ static PROJECT_RULES: &[ProjectRule] = &[
             t("storage/framework/cache/data", Safe),
             t("storage/framework/views", Safe),
             t("bootstrap/cache/*.php", Safe),
+            t("storage/logs/*.log", Safe),
         ],
         blocked_if_running: &[],
     },
@@ -425,6 +426,22 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         &["cargo"],
     ),
     g(
+        "php",
+        "Composer Cache",
+        "Library/Caches/composer",
+        "Package Cache",
+        Safe,
+        &["composer"],
+    ),
+    g(
+        "php",
+        "Composer Cache (legacy)",
+        ".composer/cache",
+        "Package Cache",
+        Safe,
+        &["composer"],
+    ),
+    g(
         "android",
         "Android AVD Images",
         ".android/avd",
@@ -653,6 +670,14 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         &["cargo"],
     ),
     g(
+        "php",
+        "Composer Cache",
+        "AppData/Local/Composer",
+        "Package Cache",
+        Safe,
+        &["composer"],
+    ),
+    g(
         "android",
         "Android AVD Images",
         ".android/avd",
@@ -746,6 +771,22 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         "Package Cache",
         Safe,
         &["cargo"],
+    ),
+    g(
+        "php",
+        "Composer Cache",
+        ".cache/composer",
+        "Package Cache",
+        Safe,
+        &["composer"],
+    ),
+    g(
+        "php",
+        "Composer Cache (legacy)",
+        ".composer/cache",
+        "Package Cache",
+        Safe,
+        &["composer"],
     ),
     g(
         "android",
@@ -2371,5 +2412,75 @@ mod tests {
         write(&home.join(".cocoapods/repos/trunk/a"), 5000);
         let r = scan(d.path(), &["homebrew"]);
         assert!(r.items.is_empty());
+    }
+
+    #[test]
+    fn laravel_logs_are_found_but_uploads_stay() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("composer.json"), 10);
+        write(&p.join("storage/logs/laravel.log"), 5000);
+        write(&p.join("storage/logs/laravel-2026-10-01.log"), 5000);
+        // Negatives: gitignore in logs, uploads in public, and project .env must stay.
+        write(&p.join("storage/logs/.gitignore"), 10);
+        write(&p.join("storage/app/public/photo.png"), 5000);
+        write(&p.join(".env"), 100);
+
+        let r = scan(d.path(), &["php"]);
+        let ps = paths(&r);
+        assert_eq!(ps.len(), 2, "{ps:?}");
+        assert!(find(&r, "storage/logs/laravel.log").is_some());
+        assert!(find(&r, "storage/logs/laravel-2026-10-01.log").is_some());
+        assert!(r.items.iter().all(|i| i.item.status == Safe));
+        assert!(find(&r, ".gitignore").is_none());
+        assert!(find(&r, "photo.png").is_none());
+        assert!(find(&r, ".env").is_none());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn composer_cache_is_safe_and_auth_stays() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join(".composer/cache/files/a"), 5000);
+        // Negatives: auth tokens, config and global vendor binaries must stay.
+        write(&home.join(".composer/auth.json"), 100);
+        write(&home.join(".composer/config.json"), 100);
+        write(&home.join(".composer/vendor/bin/tool"), 5000);
+
+        let r = scan(d.path(), &["php"]);
+        assert_eq!(r.items.len(), 1, "{:?}", paths(&r));
+        let item = &r.items[0].item;
+        assert_eq!(item.status, Safe);
+        assert!(item.path.ends_with(".composer/cache"));
+        assert!(find(&r, "auth.json").is_none());
+        assert!(find(&r, "config.json").is_none());
+        assert!(find(&r, "tool").is_none());
+        assert!(find(&r, "__home/.composer").is_none());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn composer_cache_os_folder() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join("Library/Caches/composer/files/a"), 5000);
+        let r = scan(d.path(), &["php"]);
+        assert_eq!(r.items.len(), 1, "{:?}", paths(&r));
+        assert_eq!(
+            find(&r, "Library/Caches/composer").unwrap().item.status,
+            Safe
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn composer_cache_os_folder() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join(".cache/composer/files/a"), 5000);
+        let r = scan(d.path(), &["php"]);
+        assert_eq!(r.items.len(), 1, "{:?}", paths(&r));
+        assert_eq!(find(&r, ".cache/composer").unwrap().item.status, Safe);
     }
 }
