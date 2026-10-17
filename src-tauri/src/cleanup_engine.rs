@@ -192,6 +192,29 @@ static PROJECT_RULES: &[ProjectRule] = &[
         blocked_if_running: &[],
     },
     ProjectRule {
+        module: "python",
+        name: "Python",
+        markers: &[
+            "pyproject.toml",
+            "requirements.txt",
+            "setup.py",
+            "setup.cfg",
+            "Pipfile",
+            "tox.ini",
+        ],
+        label: "Python Caches",
+        targets: &[
+            t("__pycache__", Safe),
+            t("*/__pycache__", Safe),
+            t("src/*/__pycache__", Safe),
+            t(".pytest_cache", Safe),
+            t(".mypy_cache", Safe),
+            t(".ruff_cache", Safe),
+            t(".tox", Safe),
+        ],
+        blocked_if_running: &[],
+    },
+    ProjectRule {
         module: "android",
         name: "Android / Gradle",
         markers: &[
@@ -442,6 +465,30 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         &["composer"],
     ),
     g(
+        "python",
+        "Pip Cache",
+        "Library/Caches/pip",
+        "Package Cache",
+        Safe,
+        &["pip", "pip3", "uv", "poetry"],
+    ),
+    g(
+        "python",
+        "uv Cache",
+        ".cache/uv",
+        "Package Cache",
+        Safe,
+        &["pip", "pip3", "uv", "poetry"],
+    ),
+    g(
+        "python",
+        "Poetry Cache",
+        "Library/Caches/pypoetry",
+        "Package Cache",
+        Safe,
+        &["pip", "pip3", "uv", "poetry"],
+    ),
+    g(
         "android",
         "Android AVD Images",
         ".android/avd",
@@ -678,6 +725,30 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         &["composer"],
     ),
     g(
+        "python",
+        "Pip Cache",
+        "AppData/Local/pip/Cache",
+        "Package Cache",
+        Safe,
+        &["pip", "pip3", "uv", "poetry"],
+    ),
+    g(
+        "python",
+        "uv Cache",
+        "AppData/Local/uv/cache",
+        "Package Cache",
+        Safe,
+        &["pip", "pip3", "uv", "poetry"],
+    ),
+    g(
+        "python",
+        "Poetry Cache",
+        "AppData/Local/pypoetry/Cache",
+        "Package Cache",
+        Safe,
+        &["pip", "pip3", "uv", "poetry"],
+    ),
+    g(
         "android",
         "Android AVD Images",
         ".android/avd",
@@ -787,6 +858,30 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         "Package Cache",
         Safe,
         &["composer"],
+    ),
+    g(
+        "python",
+        "Pip Cache",
+        ".cache/pip",
+        "Package Cache",
+        Safe,
+        &["pip", "pip3", "uv", "poetry"],
+    ),
+    g(
+        "python",
+        "uv Cache",
+        ".cache/uv",
+        "Package Cache",
+        Safe,
+        &["pip", "pip3", "uv", "poetry"],
+    ),
+    g(
+        "python",
+        "Poetry Cache",
+        ".cache/pypoetry",
+        "Package Cache",
+        Safe,
+        &["pip", "pip3", "uv", "poetry"],
     ),
     g(
         "android",
@@ -2482,5 +2577,123 @@ mod tests {
         let r = scan(d.path(), &["php"]);
         assert_eq!(r.items.len(), 1, "{:?}", paths(&r));
         assert_eq!(find(&r, ".cache/composer").unwrap().item.status, Safe);
+    }
+
+    #[test]
+    fn python_project_caches_are_safe_and_code_stays() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("pyproject.toml"), 10);
+        write(&p.join("main.py"), 100);
+        write(&p.join("tests/test_main.py"), 100);
+        write(&p.join("__pycache__/a.pyc"), 5000);
+        write(&p.join("tests/__pycache__/b.pyc"), 5000);
+        write(&p.join("src/pkg/__pycache__/c.pyc"), 5000);
+        write(&p.join(".pytest_cache/v"), 5000);
+        write(&p.join(".mypy_cache/m"), 5000);
+        write(&p.join(".ruff_cache/r"), 5000);
+        write(&p.join(".tox/py/x"), 5000);
+
+        let r = scan(d.path(), &["python"]);
+        let ps = paths(&r);
+        assert_eq!(ps.len(), 7, "{ps:?}");
+        assert!(find(&r, "app/__pycache__").is_some());
+        assert!(find(&r, "tests/__pycache__").is_some());
+        assert!(find(&r, "src/pkg/__pycache__").is_some());
+        assert!(find(&r, ".pytest_cache").is_some());
+        assert!(find(&r, ".mypy_cache").is_some());
+        assert!(find(&r, ".ruff_cache").is_some());
+        assert!(find(&r, ".tox").is_some());
+        assert!(r.items.iter().all(|i| i.item.status == Safe));
+        assert!(find(&r, "main.py").is_none());
+        assert!(find(&r, "test_main.py").is_none());
+        assert!(find(&r, "pyproject.toml").is_none());
+    }
+
+    #[test]
+    fn python_venv_is_not_touched_here() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("requirements.txt"), 10);
+        write(&p.join(".venv/pyvenv.cfg"), 10);
+        write(
+            &p.join(".venv/lib/python3.12/site-packages/x/__pycache__/d.pyc"),
+            5000,
+        );
+        write(&p.join("venv/pyvenv.cfg"), 10);
+
+        let r = scan(d.path(), &["python"]);
+        for item in &r.items {
+            assert!(
+                !item.item.path.contains(".venv") && !item.item.path.contains("/venv"),
+                "found venv path: {}",
+                item.item.path
+            );
+        }
+    }
+
+    #[test]
+    fn python_nested_projects_have_no_duplicates() {
+        let d = TempDir::new().unwrap();
+        let mono = d.path().join("mono");
+        write(&mono.join("pyproject.toml"), 10);
+        let pkg = mono.join("pkg");
+        write(&pkg.join("pyproject.toml"), 10);
+        write(&pkg.join("__pycache__/a.pyc"), 5000);
+
+        let r = scan(d.path(), &["python"]);
+        let ps = paths(&r);
+        let mut deduped = ps.clone();
+        deduped.sort();
+        deduped.dedup();
+        assert_eq!(ps.len(), deduped.len(), "duplicates found: {ps:?}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn python_global_caches_safe_and_settings_stay() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join("Library/Caches/pip/http/a"), 5000);
+        write(&home.join(".cache/uv/wheels/b"), 5000);
+        write(&home.join("Library/Caches/pypoetry/c"), 5000);
+        // Negatives: settings and credentials must stay.
+        write(&home.join(".config/pypoetry/config.toml"), 100);
+        write(&home.join(".pypirc"), 100);
+        write(&home.join(".config/pip/pip.conf"), 100);
+
+        let r = scan(d.path(), &["python"]);
+        assert_eq!(r.items.len(), 3, "{:?}", paths(&r));
+        assert!(find(&r, "Library/Caches/pip").is_some());
+        assert!(find(&r, ".cache/uv").is_some());
+        assert!(find(&r, "Library/Caches/pypoetry").is_some());
+        assert!(r.items.iter().all(|i| i.item.status == Safe));
+        assert!(find(&r, "config.toml").is_none());
+        assert!(find(&r, ".pypirc").is_none());
+        assert!(find(&r, "pip.conf").is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn python_global_caches_safe_and_settings_stay() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join(".cache/pip/http/a"), 5000);
+        write(&home.join(".cache/uv/wheels/b"), 5000);
+        write(&home.join(".cache/pypoetry/c"), 5000);
+        // Negatives: settings and credentials must stay.
+        write(&home.join(".config/pypoetry/config.toml"), 100);
+        write(&home.join(".pypirc"), 100);
+        write(&home.join(".config/pip/pip.conf"), 100);
+
+        let r = scan(d.path(), &["python"]);
+        assert_eq!(r.items.len(), 3, "{:?}", paths(&r));
+        assert!(find(&r, ".cache/pip").is_some());
+        assert!(find(&r, ".cache/uv").is_some());
+        assert!(find(&r, ".cache/pypoetry").is_some());
+        assert!(r.items.iter().all(|i| i.item.status == Safe));
+        assert!(find(&r, "config.toml").is_none());
+        assert!(find(&r, ".pypirc").is_none());
+        assert!(find(&r, "pip.conf").is_none());
     }
 }
