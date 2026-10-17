@@ -20,6 +20,7 @@ mod ai_rules;
 mod android;
 mod conda;
 mod dart;
+mod go;
 mod native_commands;
 mod node;
 mod rust;
@@ -518,6 +519,14 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         &["pip", "pip3", "uv", "poetry"],
     ),
     g(
+        "go",
+        "Go Build Cache",
+        "Library/Caches/go-build",
+        "Build Cache",
+        Safe,
+        &["go"],
+    ),
+    g(
         "android",
         "Android AVD Images",
         ".android/avd",
@@ -778,6 +787,14 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         &["pip", "pip3", "uv", "poetry"],
     ),
     g(
+        "go",
+        "Go Build Cache",
+        "AppData/Local/go-build",
+        "Build Cache",
+        Safe,
+        &["go"],
+    ),
+    g(
         "android",
         "Android AVD Images",
         ".android/avd",
@@ -911,6 +928,14 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         "Package Cache",
         Safe,
         &["pip", "pip3", "uv", "poetry"],
+    ),
+    g(
+        "go",
+        "Go Build Cache",
+        ".cache/go-build",
+        "Build Cache",
+        Safe,
+        &["go"],
     ),
     g(
         "android",
@@ -1116,6 +1141,7 @@ pub fn scan_directory(
     node::collect(env, &enabled, &mut candidates);
     rust::collect(env, &enabled, &mut candidates);
     conda::collect(env, &enabled, &mut candidates);
+    go::collect(env, &enabled, &mut candidates);
     collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
 
     candidates.retain(|c| !is_ignored(&c.path));
@@ -2816,5 +2842,53 @@ mod tests {
 
         let r = scan(d.path(), &["python_venv"]);
         assert!(r.items.is_empty(), "unexpected items: {:?}", paths(&r));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn go_build_cache_is_safe_and_projects_untouched() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join("Library/Caches/go-build/ab/x"), 5000);
+        write(&home.join("go/bin/tool"), 5000);
+        write(&home.join("go/src/app/main.go"), 5000);
+
+        let svc = d.path().join("svc");
+        write(&svc.join("go.mod"), 10);
+        write(&svc.join("pkg/api/handler.go"), 5000);
+        write(&svc.join("bin/tool"), 5000);
+
+        let r = scan(d.path(), &["go"]);
+        assert_eq!(r.items.len(), 1, "{:?}", paths(&r));
+        let item = &r.items[0].item;
+        assert!(item.path.ends_with("Library/Caches/go-build"));
+        assert_eq!(item.status, Safe);
+        assert!(find(&r, "go/bin").is_none());
+        assert!(find(&r, "go/src").is_none());
+        assert!(find(&r, "svc").is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn go_build_cache_is_safe_and_projects_untouched() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join(".cache/go-build/ab/x"), 5000);
+        write(&home.join("go/bin/tool"), 5000);
+        write(&home.join("go/src/app/main.go"), 5000);
+
+        let svc = d.path().join("svc");
+        write(&svc.join("go.mod"), 10);
+        write(&svc.join("pkg/api/handler.go"), 5000);
+        write(&svc.join("bin/tool"), 5000);
+
+        let r = scan(d.path(), &["go"]);
+        assert_eq!(r.items.len(), 1, "{:?}", paths(&r));
+        let item = &r.items[0].item;
+        assert!(item.path.ends_with(".cache/go-build"));
+        assert_eq!(item.status, Safe);
+        assert!(find(&r, "go/bin").is_none());
+        assert!(find(&r, "go/src").is_none());
+        assert!(find(&r, "svc").is_none());
     }
 }

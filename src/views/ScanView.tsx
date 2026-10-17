@@ -39,7 +39,7 @@ const PROJECT_MODULES: ModuleDef[] = [
   { id: 'cpp', title: 'C++ / CMake', icon: SiCplusplus, color: '#00599C', description: 'CMake build and out folders.' },
   { id: 'unity', title: 'Unity', icon: SiUnity, color: 'currentColor', description: 'Library and Temp folders in Unity projects.' },
   { id: 'unreal', title: 'Unreal Engine', icon: SiUnrealengine, color: 'currentColor', description: 'Intermediate, Saved and Binaries folders.' },
-  { id: 'go', title: 'Go', icon: SiGo, color: '#00ADD8', description: 'Module and build caches.', soon: true },
+  { id: 'go', title: 'Go', icon: SiGo, color: '#00ADD8', description: 'The Go build cache, and the module cache through go clean -modcache.', review: true },
 ];
 
 const GLOBAL_MODULES: ModuleDef[] = [

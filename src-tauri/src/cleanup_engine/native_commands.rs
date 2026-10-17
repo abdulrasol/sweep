@@ -27,6 +27,8 @@ pub enum NativeCommand {
     },
     /// `conda clean --all --yes` with `CONDA_PKGS_DIRS=<root>/pkgs`.
     CondaClean { conda: PathBuf, root: PathBuf },
+    /// `go clean -modcache` with `GOMODCACHE=<modcache>` (the `~/go/pkg/mod` folder).
+    GoCleanModCache { go: PathBuf, modcache: PathBuf },
 }
 
 /// Run the command. Returns the bytes freed when the command measures them itself.
@@ -119,6 +121,38 @@ pub(super) fn run(cmd: &NativeCommand) -> Result<Option<u64>, String> {
             )?;
             Ok(Some(before.saturating_sub(super::disk_usage(&pkgs))))
         }
+        NativeCommand::GoCleanModCache { go, modcache } => {
+            if !modcache.is_absolute()
+                || modcache
+                    .components()
+                    .any(|c| matches!(c, Component::ParentDir))
+            {
+                return Err(
+                    "Sweep refused to clean an unexpected Go module cache path.".to_string()
+                );
+            }
+            if modcache.file_name() != Some(OsStr::new("mod"))
+                || modcache.parent().and_then(|p| p.file_name()) != Some(OsStr::new("pkg"))
+            {
+                return Err("Sweep refused to clean a folder not named pkg/mod.".to_string());
+            }
+            check(go, "go", modcache, "mod")?;
+            if !super::is_real_dir(modcache) {
+                return Err(
+                    "Sweep refused to clean a missing or symlinked mod cache directory."
+                        .to_string(),
+                );
+            }
+            let before = super::disk_usage(modcache);
+            output(
+                "go clean -modcache",
+                Command::new(go)
+                    .args(["clean", "-modcache"])
+                    .env("GOMODCACHE", modcache)
+                    .env("PATH", child_path(go)),
+            )?;
+            Ok(Some(before.saturating_sub(super::disk_usage(modcache))))
+        }
     }
 }
 
@@ -210,6 +244,7 @@ fn search_dirs(home: &Path) -> Vec<PathBuf> {
         dirs.push(nvm);
     }
     dirs.push(PathBuf::from("/opt/homebrew/bin"));
+    dirs.push(PathBuf::from("/usr/local/go/bin"));
     dirs.push(PathBuf::from("/usr/local/bin"));
     dirs.push(PathBuf::from("/usr/bin"));
     dirs.push(PathBuf::from("/bin"));
@@ -508,6 +543,144 @@ mod tests {
         assert!(run(&NativeCommand::CondaClean {
             conda: conda_g,
             root: root_g,
+        })
+        .is_err());
+
+        fn check_no_called_txt(p: &Path) {
+            if p.is_dir() {
+                for entry in fs::read_dir(p).unwrap() {
+                    let child = entry.unwrap().path();
+                    if child.is_dir() {
+                        check_no_called_txt(&child);
+                    } else {
+                        assert_ne!(
+                            child.file_name().and_then(|s| s.to_str()),
+                            Some("called.txt")
+                        );
+                    }
+                }
+            }
+        }
+        check_no_called_txt(d.path());
+    }
+
+    fn write_fake_go(bin_dir: &Path) -> PathBuf {
+        fs::create_dir_all(bin_dir).unwrap();
+        let path = bin_dir.join("go");
+        fs::write(
+            &path,
+            "#!/bin/sh\necho \"$* GOMODCACHE=$GOMODCACHE\" > \"$(dirname \"$0\")/called.txt\"\n[ -n \"$GOMODCACHE\" ] && : > \"$GOMODCACHE/big.zip\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[test]
+    fn go_clean_modcache_pins_folder_and_reports_freed_bytes() {
+        let d = TempDir::new().unwrap();
+        let root = d.path().join("go");
+        let go = write_fake_go(&root.join("bin"));
+
+        let modcache = root.join("pkg/mod");
+        fs::create_dir_all(&modcache).unwrap();
+        fs::write(modcache.join("big.zip"), vec![0u8; 100_000]).unwrap();
+        let download_file = modcache.join("cache/download/x");
+        fs::create_dir_all(download_file.parent().unwrap()).unwrap();
+        fs::write(&download_file, vec![0u8; 5_000]).unwrap();
+
+        let tool = root.join("bin/tool");
+        fs::write(&tool, vec![0u8; 5_000]).unwrap();
+
+        let main_go = root.join("src/app/main.go");
+        fs::create_dir_all(main_go.parent().unwrap()).unwrap();
+        fs::write(&main_go, vec![0u8; 5_000]).unwrap();
+
+        let freed = run(&NativeCommand::GoCleanModCache {
+            go,
+            modcache: modcache.clone(),
+        })
+        .unwrap();
+
+        assert!(matches!(freed, Some(n) if n > 0));
+        assert_eq!(
+            called(&root.join("bin")),
+            format!("clean -modcache GOMODCACHE={}", modcache.display())
+        );
+        assert!(tool.exists());
+        assert_eq!(fs::metadata(&tool).unwrap().len(), 5_000);
+        assert!(main_go.exists());
+        assert_eq!(fs::metadata(&main_go).unwrap().len(), 5_000);
+    }
+
+    #[test]
+    fn go_clean_modcache_refuses_unexpected_input() {
+        let d = TempDir::new().unwrap();
+        let root = d.path().join("go");
+        let go = write_fake_go(&root.join("bin"));
+
+        // (a) program named rm
+        let rm = fake_tool(&root.join("bin"), "rm");
+        let valid_modcache = root.join("pkg/mod");
+        fs::create_dir_all(&valid_modcache).unwrap();
+        assert!(run(&NativeCommand::GoCleanModCache {
+            go: rm,
+            modcache: valid_modcache.clone(),
+        })
+        .is_err());
+
+        // (b) modcache <tmp>/go/pkg/other (not named mod)
+        let other_cache = root.join("pkg/other");
+        fs::create_dir_all(&other_cache).unwrap();
+        assert!(run(&NativeCommand::GoCleanModCache {
+            go: go.clone(),
+            modcache: other_cache,
+        })
+        .is_err());
+
+        // (c) modcache <tmp>/go/mod (parent not named pkg)
+        let root_mod = root.join("mod");
+        fs::create_dir_all(&root_mod).unwrap();
+        assert!(run(&NativeCommand::GoCleanModCache {
+            go: go.clone(),
+            modcache: root_mod,
+        })
+        .is_err());
+
+        // (d) modcache "<tmp>/go/pkg/mod/../mod" (contains ..)
+        let parent_dir_cache = root.join("pkg/mod/../mod");
+        assert!(run(&NativeCommand::GoCleanModCache {
+            go: go.clone(),
+            modcache: parent_dir_cache,
+        })
+        .is_err());
+
+        // (e) relative modcache path "go/pkg/mod"
+        assert!(run(&NativeCommand::GoCleanModCache {
+            go: go.clone(),
+            modcache: PathBuf::from("go/pkg/mod"),
+        })
+        .is_err());
+
+        // (f) pkg/mod folder missing
+        let missing_mod = d.path().join("other_go/pkg/mod");
+        assert!(run(&NativeCommand::GoCleanModCache {
+            go: go.clone(),
+            modcache: missing_mod,
+        })
+        .is_err());
+
+        // (g) <tmp>/go/pkg/mod is a symlink to another real folder
+        let sym_root = d.path().join("sym_go");
+        let sym_go = write_fake_go(&sym_root.join("bin"));
+        let real_mod = d.path().join("real_mod");
+        fs::create_dir_all(&real_mod).unwrap();
+        let sym_pkg = sym_root.join("pkg");
+        fs::create_dir_all(&sym_pkg).unwrap();
+        std::os::unix::fs::symlink(&real_mod, sym_pkg.join("mod")).unwrap();
+        assert!(run(&NativeCommand::GoCleanModCache {
+            go: sym_go,
+            modcache: sym_pkg.join("mod"),
         })
         .is_err());
 
