@@ -4,6 +4,7 @@ import {
   ChevronDown, ShieldCheck, ShieldAlert, ArrowDownWideNarrow, X,
 } from 'lucide-react';
 import { invoke, formatBytes } from '../lib/tauri';
+import { BrandTile } from '../lib/brands';
 
 interface ReviewViewProps {
   scanPath: string;
@@ -436,7 +437,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
                     <li
                       key={item.id}
                       onClick={() => toggleItem(item)}
-                      className={`grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-4 px-4 py-3 border-l-2 transition-colors
+                      className={`grid grid-cols-[auto_auto_minmax(0,1fr)_auto] gap-x-4 px-4 py-3 border-l-2 transition-colors
                         ${selected ? 'border-l-primary bg-primary/[0.04]' : 'border-l-transparent hover:bg-surface-bright/50'}
                         ${item.blocked_by ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                     >
@@ -447,6 +448,10 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
                           onClick={() => toggleItem(item)}
                           label={`Select ${item.path}`}
                         />
+                      </div>
+
+                      <div className="pt-0.5">
+                        <BrandTile item={item} />
                       </div>
 
                       <div className="min-w-0 space-y-1">
