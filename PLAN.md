@@ -50,7 +50,7 @@
 - [x] 2.9 Python (متوسط) (أُنجزت 2026-10-17) — 2.9a و 2.9b و 2.9c
 - [x] 2.9b Python: بيئات .venv و venv (متوسط) (أُنجزت 2026-10-17)
 - [x] 2.9c Python: Conda بالأمر الرسمي (متوسط) (أُنجزت 2026-10-17)
-- [ ] 2.10 Go (متوسط)
+- [x] 2.10 Go (متوسط) (أُنجزت 2026-10-18)
 - [ ] 2.11 المحررات: VS Code و Cursor و JetBrains (متوسط)
 - [ ] 2.12 Docker و OrbStack و Colima (عالي)
 - [ ] 2.13 Homebrew (متوسط)
@@ -484,6 +484,8 @@ for e in WalkDir::new(p).follow_links(false) {
 **ليش:** الكاش الحقيقي مالت Go عالمي مو داخل المشروع.
 
 **الحل:** `go clean -modcache` (يمسح `~/go/pkg/mod` ويتعامل مع صلاحيات القراءة فقط)، و `~/Library/Caches/go-build` بحالة SAFE.
+
+عند التنفيذ: كاش البناء `go-build` قاعدة عالمية SAFE (ماك: `Library/Caches/go-build`، لينكس: `.cache/go-build`، ويندوز: `AppData/Local/go-build`) ويُمسح المجلد مباشرة. وكاش الموديولات `~/go/pkg/mod` بالأمر الرسمي `go clean -modcache` بحالة REVIEW (مو SAFE) لأن البناء بدون إنترنت أو بموديولات خاصة يفشل لين تنزل ثانية. الأمر `NativeCommand::GoCleanModCache` يتحقق وقت التشغيل: المسار مطلق بدون `..` وآخره `pkg/mod` والمجلد حقيقي (مو رابط رمزي)، ويثبّت `GOMODCACHE` ويقيس الحجم المحرَّر قبل وبعد. متغيرات `GOPATH` و `GOMODCACHE` تُتجاهل عمداً (نفس قرار `PUB_CACHE`). مجلدات `bin` و `pkg` و `src` داخل مشاريع Go ما تنلمس. ملف جديد: `go.rs`، وأُضيف `/usr/local/go/bin` لمسارات البحث عن `go`. بطاقة Go بالواجهة صارت فعّالة.
 
 **الملفات:** `rules, native_commands.rs`
 
