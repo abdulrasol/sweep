@@ -45,7 +45,7 @@ export default function AboutView({ version }: { version: string }) {
   return (
     <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
       <header className="flex items-center gap-4">
-        <img src="/sweep.png" alt="" className="w-16 h-16 rounded-2xl border border-outline object-cover" />
+        <img src="/sweep.svg" alt="" className="w-16 h-16 rounded-2xl border border-outline object-cover" />
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">Sweep</h2>
           <p className="text-sm text-on-surface/60">

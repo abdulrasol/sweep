@@ -28,7 +28,7 @@ export default function Sidebar({ activeView, onNavigate, locked, sysInfo }: Sid
   return (
     <aside className="w-56 bg-surface-container border-r border-outline flex flex-col h-full shrink-0">
       <div className="px-5 pt-5 pb-6 flex items-center gap-3">
-        <img src="/sweep.png" alt="" className="w-9 h-9 rounded-[9px] object-cover border border-outline" />
+        <img src="/sweep.svg" alt="" className="w-9 h-9 rounded-[9px] object-cover border border-outline" />
         <div className="leading-tight">
           <h1 className="text-[15px] font-semibold">Sweep</h1>
           <p className="text-xs text-on-surface/50">Reclaim your storage</p>
