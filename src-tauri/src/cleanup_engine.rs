@@ -18,6 +18,7 @@ use walkdir::WalkDir;
 
 mod ai_rules;
 mod android;
+mod conda;
 mod dart;
 mod native_commands;
 mod node;
@@ -1114,6 +1115,7 @@ pub fn scan_directory(
     android::collect(env, &enabled, &mut candidates);
     node::collect(env, &enabled, &mut candidates);
     rust::collect(env, &enabled, &mut candidates);
+    conda::collect(env, &enabled, &mut candidates);
     collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
 
     candidates.retain(|c| !is_ignored(&c.path));

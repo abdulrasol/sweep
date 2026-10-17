@@ -6,7 +6,7 @@
 //! pinned through the tool's own setting so it cleans exactly what the scan showed.
 
 use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +25,8 @@ pub enum NativeCommand {
         rustup_home: PathBuf,
         toolchain: String,
     },
+    /// `conda clean --all --yes` with `CONDA_PKGS_DIRS=<root>/pkgs`.
+    CondaClean { conda: PathBuf, root: PathBuf },
 }
 
 /// Run the command. Returns the bytes freed when the command measures them itself.
@@ -84,6 +86,38 @@ pub(super) fn run(cmd: &NativeCommand) -> Result<Option<u64>, String> {
                     .env("RUSTUP_HOME", rustup_home),
             )
             .map(|()| None)
+        }
+        NativeCommand::CondaClean { conda, root } => {
+            if !root.is_absolute()
+                || !root
+                    .file_name()
+                    .is_some_and(|n| CONDA_ROOTS.iter().any(|&r| n == r))
+            {
+                return Err("Sweep refused to clean an unexpected Conda root.".to_string());
+            }
+            if !conda.starts_with(root)
+                || conda
+                    .components()
+                    .any(|c| matches!(c, Component::ParentDir))
+            {
+                return Err("Sweep refused to run a Conda binary outside its root.".to_string());
+            }
+            let pkgs = root.join("pkgs");
+            check(conda, "conda", &pkgs, "pkgs")?;
+            if !super::is_real_dir(&pkgs) {
+                return Err(
+                    "Sweep refused to clean a missing or symlinked pkgs directory.".to_string(),
+                );
+            }
+            let before = super::disk_usage(&pkgs);
+            output(
+                "conda clean",
+                Command::new(conda)
+                    .args(["clean", "--all", "--yes"])
+                    .env("CONDA_PKGS_DIRS", &pkgs)
+                    .env("PATH", child_path(conda)),
+            )?;
+            Ok(Some(before.saturating_sub(super::disk_usage(&pkgs))))
         }
     }
 }
@@ -188,6 +222,17 @@ pub(super) fn find_tool(home: &Path, name: &str) -> Option<PathBuf> {
         .into_iter()
         .map(|d| d.join(name))
         .find(|p| is_tool(p, name))
+}
+
+pub(super) const CONDA_ROOTS: [&str; 4] = ["anaconda3", "miniconda3", "miniforge3", "mambaforge"];
+
+pub(super) fn conda_in(root: &Path) -> Option<PathBuf> {
+    let path = root.join("bin/conda");
+    if is_tool(&path, "conda") {
+        Some(path)
+    } else {
+        None
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -355,5 +400,132 @@ mod tests {
         let found = find_tool(d.path(), "pnpm").unwrap();
         assert!(found == pnpm || is_tool(&found, "pnpm"));
         assert!(find_tool(d.path(), "definitely-not-a-tool").is_none());
+    }
+
+    fn write_fake_conda(bin_dir: &Path) -> PathBuf {
+        fs::create_dir_all(bin_dir).unwrap();
+        let path = bin_dir.join("conda");
+        fs::write(
+            &path,
+            "#!/bin/sh\necho \"$* CONDA_PKGS_DIRS=$CONDA_PKGS_DIRS\" > \"$(dirname \"$0\")/called.txt\"\n[ -n \"$CONDA_PKGS_DIRS\" ] && : > \"$CONDA_PKGS_DIRS/big.tar.bz2\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[test]
+    fn conda_clean_pins_pkgs_and_reports_freed_bytes() {
+        let d = TempDir::new().unwrap();
+        let root = d.path().join("miniconda3");
+        let conda = write_fake_conda(&root.join("bin"));
+
+        let pkgs = root.join("pkgs");
+        fs::create_dir_all(&pkgs).unwrap();
+        fs::write(pkgs.join("big.tar.bz2"), vec![0u8; 100_000]).unwrap();
+
+        let env_file = root.join("envs/work/x");
+        fs::create_dir_all(env_file.parent().unwrap()).unwrap();
+        fs::write(&env_file, vec![0u8; 5_000]).unwrap();
+
+        let freed = run(&NativeCommand::CondaClean {
+            conda,
+            root: root.clone(),
+        })
+        .unwrap();
+
+        assert!(matches!(freed, Some(n) if n > 0));
+        assert_eq!(
+            called(&root.join("bin")),
+            format!("clean --all --yes CONDA_PKGS_DIRS={}", pkgs.display())
+        );
+        assert!(env_file.exists());
+        assert_eq!(fs::metadata(&env_file).unwrap().len(), 5_000);
+    }
+
+    #[test]
+    fn conda_clean_refuses_unexpected_input() {
+        let d = TempDir::new().unwrap();
+
+        // (a) program named rm inside miniconda3/bin
+        let root_a = d.path().join("miniconda3");
+        fs::create_dir_all(root_a.join("pkgs")).unwrap();
+        let rm = fake_tool(&root_a.join("bin"), "rm");
+        assert!(run(&NativeCommand::CondaClean {
+            conda: rm,
+            root: root_a.clone(),
+        })
+        .is_err());
+
+        // (b) real fake conda at <tmp>/other/bin/conda with root <tmp>/miniconda3 (conda outside root)
+        let other_conda = write_fake_conda(&d.path().join("other/bin"));
+        assert!(run(&NativeCommand::CondaClean {
+            conda: other_conda,
+            root: root_a.clone(),
+        })
+        .is_err());
+
+        // (c) root named Documents (conda inside it)
+        let root_c = d.path().join("Documents");
+        fs::create_dir_all(root_c.join("pkgs")).unwrap();
+        let conda_c = write_fake_conda(&root_c.join("bin"));
+        assert!(run(&NativeCommand::CondaClean {
+            conda: conda_c,
+            root: root_c,
+        })
+        .is_err());
+
+        // (d) root miniconda3 but pkgs folder missing
+        let root_d = d.path().join("mambaforge");
+        let conda_d = write_fake_conda(&root_d.join("bin"));
+        assert!(run(&NativeCommand::CondaClean {
+            conda: conda_d,
+            root: root_d,
+        })
+        .is_err());
+
+        // (e) relative root path
+        assert!(run(&NativeCommand::CondaClean {
+            conda: PathBuf::from("miniconda3/bin/conda"),
+            root: PathBuf::from("miniconda3"),
+        })
+        .is_err());
+
+        // (f) conda path "<tmp>/miniconda3/../other/bin/conda" (contains ..)
+        let conda_f = root_a.join("../other/bin/conda");
+        assert!(run(&NativeCommand::CondaClean {
+            conda: conda_f,
+            root: root_a.clone(),
+        })
+        .is_err());
+
+        // (g) pkgs is a symlink to another real folder
+        let root_g = d.path().join("miniforge3");
+        let conda_g = write_fake_conda(&root_g.join("bin"));
+        let real_pkgs = d.path().join("real_pkgs");
+        fs::create_dir_all(&real_pkgs).unwrap();
+        std::os::unix::fs::symlink(&real_pkgs, root_g.join("pkgs")).unwrap();
+        assert!(run(&NativeCommand::CondaClean {
+            conda: conda_g,
+            root: root_g,
+        })
+        .is_err());
+
+        fn check_no_called_txt(p: &Path) {
+            if p.is_dir() {
+                for entry in fs::read_dir(p).unwrap() {
+                    let child = entry.unwrap().path();
+                    if child.is_dir() {
+                        check_no_called_txt(&child);
+                    } else {
+                        assert_ne!(
+                            child.file_name().and_then(|s| s.to_str()),
+                            Some("called.txt")
+                        );
+                    }
+                }
+            }
+        }
+        check_no_called_txt(d.path());
     }
 }
