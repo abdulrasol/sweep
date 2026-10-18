@@ -16,6 +16,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+mod ai_models;
 mod ai_rules;
 mod android;
 mod brew;
@@ -574,14 +575,6 @@ static GLOBAL_RULES: &[GlobalRule] = &[
     ),
     g(
         "ai",
-        "Hugging Face Models",
-        ".cache/huggingface",
-        "AI Model Cache",
-        Review,
-        &[],
-    ),
-    g(
-        "ai",
         "PyTorch Cache",
         ".cache/torch",
         "AI Model Cache",
@@ -833,14 +826,6 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         &[],
     ),
     g(
-        "ai",
-        "Hugging Face Models",
-        ".cache/huggingface",
-        "AI Model Cache",
-        Review,
-        &[],
-    ),
-    g(
         "dotnet",
         "NuGet Cache",
         ".nuget/packages",
@@ -981,14 +966,6 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         ".vagrant.d/boxes",
         "Virtualization",
         Danger,
-        &[],
-    ),
-    g(
-        "ai",
-        "Hugging Face Models",
-        ".cache/huggingface",
-        "AI Model Cache",
-        Review,
         &[],
     ),
     g(
@@ -1148,6 +1125,7 @@ pub fn scan_directory(
     go::collect(env, &enabled, &mut candidates);
     docker::collect(env, &enabled, &mut candidates);
     brew::collect(env, &enabled, &mut candidates);
+    ai_models::collect(env, &enabled, &mut candidates);
     collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
 
     candidates.retain(|c| !is_ignored(&c.path));
@@ -1405,7 +1383,7 @@ fn expand(base: &Path, rel: &str) -> Vec<PathBuf> {
     }
 }
 
-fn is_real_dir(p: &Path) -> bool {
+pub(super) fn is_real_dir(p: &Path) -> bool {
     fs::symlink_metadata(p).map(|m| m.is_dir()).unwrap_or(false)
 }
 
@@ -1606,6 +1584,7 @@ pub fn protected_paths(home: &Path) -> Vec<PathBuf> {
     }
     v.extend(ai_rules::PROTECTED.iter().map(|rel| home.join(rel)));
     v.extend(editors::PROTECTED.iter().map(|rel| home.join(rel)));
+    v.extend(ai_models::PROTECTED.iter().map(|rel| home.join(rel)));
     // Compare against canonical forms too (/var -> /private/var on macOS).
     let canon: Vec<PathBuf> = v.iter().filter_map(|p| fs::canonicalize(p).ok()).collect();
     v.extend(canon);
@@ -3607,5 +3586,190 @@ echo "==> This operation has freed approximately 1.5GB of disk space.""#
             err_missing.is_err(),
             "expected error for missing brew binary"
         );
+    }
+
+    // ----- AI Models (PLAN 2.14a) --------------------------------------------
+
+    #[test]
+    fn huggingface_hub_models_datasets_and_spaces() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let hub = home.join(".cache/huggingface/hub");
+
+        write(
+            &hub.join("models--org--name/snapshots/main/model.safetensors"),
+            5000,
+        );
+        write(&hub.join("datasets--x--y/data.parquet"), 5000);
+        write(&hub.join("models--solo/weights.bin"), 5000);
+        write(&hub.join(".locks/models/lock"), 10);
+        write(&hub.join("version.txt"), 10);
+        write(&home.join(".cache/huggingface/token"), 10);
+        write(&home.join(".cache/huggingface/stored_tokens"), 10);
+
+        let r = scan(d.path(), &["ai"]);
+
+        assert_eq!(r.items.len(), 3, "got items: {:?}", paths(&r));
+
+        let m1 = r
+            .items
+            .iter()
+            .find(|i| i.item.description.contains("org/name"))
+            .unwrap();
+        assert_eq!(m1.item.file_type, "Hugging Face Models");
+        assert_eq!(m1.item.category, "AI Model Cache");
+        assert_eq!(m1.item.status, Review);
+        assert_eq!(m1.item.group, "AI Tools");
+
+        let m2 = r
+            .items
+            .iter()
+            .find(|i| i.item.description.contains("x/y"))
+            .unwrap();
+        assert_eq!(m2.item.file_type, "Hugging Face Datasets");
+        assert_eq!(m2.item.status, Review);
+
+        let m3 = r
+            .items
+            .iter()
+            .find(|i| i.item.description.contains("solo"))
+            .unwrap();
+        assert_eq!(m3.item.file_type, "Hugging Face Models");
+        assert_eq!(m3.item.status, Review);
+
+        assert!(find(&r, ".locks").is_none());
+        assert!(find(&r, "version.txt").is_none());
+        assert!(find(&r, "token").is_none());
+        assert!(r
+            .items
+            .iter()
+            .all(|i| i.item.path != home.join(".cache/huggingface").display().to_string()));
+    }
+
+    #[test]
+    fn huggingface_extra_caches_datasets_and_xet() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join(".cache/huggingface/datasets/cache1.arrow"), 5000);
+        write(&home.join(".cache/huggingface/xet/cache2.bin"), 5000);
+        write(&home.join(".cache/huggingface/assets/x"), 5000);
+
+        let r = scan(d.path(), &["ai"]);
+        assert_eq!(r.items.len(), 2, "got items: {:?}", paths(&r));
+
+        let ds = find(&r, ".cache/huggingface/datasets").unwrap();
+        assert_eq!(ds.item.file_type, "Hugging Face Datasets Cache");
+        assert_eq!(ds.item.status, Review);
+
+        let xet = find(&r, ".cache/huggingface/xet").unwrap();
+        assert_eq!(xet.item.file_type, "Hugging Face Xet Cache");
+        assert_eq!(xet.item.status, Review);
+
+        assert!(find(&r, "assets").is_none());
+    }
+
+    #[test]
+    fn lm_studio_models_hierarchical_discovery() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+
+        // Primary root: ~/.lmstudio/models
+        write(&home.join(".lmstudio/models/pub/model-a/a.gguf"), 5000);
+        write(&home.join(".lmstudio/models/pub/model-b/b.gguf"), 5000);
+        write(&home.join(".lmstudio/models/.internal/x/y"), 5000);
+        write(&home.join(".lmstudio/models/loose.gguf"), 5000);
+
+        // Legacy root: ~/.cache/lm-studio/models
+        write(
+            &home.join(".cache/lm-studio/models/pub2/model-c/c.gguf"),
+            5000,
+        );
+
+        let r = scan(d.path(), &["ai"]);
+        assert_eq!(r.items.len(), 3, "got: {:?}", paths(&r));
+
+        let m_a = find(&r, "pub/model-a").unwrap();
+        assert_eq!(m_a.item.file_type, "LM Studio Models");
+        assert_eq!(m_a.item.status, Review);
+        assert_eq!(m_a.item.group, "AI Tools");
+        assert_eq!(m_a.blocked_if_running, &["LM Studio"]);
+        assert!(m_a.item.description.contains("pub/model-a"));
+
+        let m_b = find(&r, "pub/model-b").unwrap();
+        assert_eq!(m_b.item.file_type, "LM Studio Models");
+        assert_eq!(m_b.blocked_if_running, &["LM Studio"]);
+
+        let m_c = find(&r, "pub2/model-c").unwrap();
+        assert_eq!(m_c.item.file_type, "LM Studio Models");
+        assert_eq!(m_c.blocked_if_running, &["LM Studio"]);
+
+        assert!(find(&r, ".internal").is_none());
+        assert!(find(&r, "loose.gguf").is_none());
+        assert!(
+            find(&r, ".lmstudio/models").is_none()
+                || r.items
+                    .iter()
+                    .all(|i| i.item.path != home.join(".lmstudio/models").display().to_string())
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn huggingface_hub_symlink_ignored() {
+        use std::os::unix::fs::symlink;
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let hub = home.join(".cache/huggingface/hub");
+        fs::create_dir_all(&hub).unwrap();
+
+        let outside = d.path().join("outside_target");
+        write(&outside.join("file.bin"), 5000);
+
+        symlink(&outside, hub.join("models--evil")).unwrap();
+
+        let r = scan(d.path(), &["ai"]);
+        assert!(
+            r.items.is_empty(),
+            "symlink in hub must not be offered: {:?}",
+            paths(&r)
+        );
+    }
+
+    #[test]
+    fn ai_models_protected_paths_and_delete_refused() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let home = root.join("home");
+        let token_rel = ".cache/huggingface/token";
+        write(&home.join(token_rel), 10);
+
+        let protected = protected_paths(&home);
+        for expected in super::ai_models::PROTECTED {
+            let p = home.join(expected);
+            assert!(
+                protected.iter().any(|prot| prot == &p),
+                "expected protected path missing: {expected}"
+            );
+        }
+
+        let roots = vec![home.clone()];
+        assert!(
+            delete_path(&scanned(&home.join(token_rel)), &roots, &protected).is_err(),
+            "{token_rel} delete was not refused"
+        );
+    }
+
+    #[test]
+    fn pytorch_cache_still_works() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join(".cache/torch/kernels/kernel.bin"), 5000);
+
+        let r = scan(d.path(), &["ai"]);
+        assert_eq!(r.items.len(), 1);
+        let item = &r.items[0];
+        assert!(item.item.path.ends_with(".cache/torch"));
+        assert_eq!(item.item.file_type, "PyTorch Cache");
+        assert_eq!(item.item.status, Review);
     }
 }
