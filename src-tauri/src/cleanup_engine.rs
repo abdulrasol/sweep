@@ -3523,6 +3523,62 @@ Would remove: /Users/x/Library/Caches/Homebrew/downloads/pkg.tar.gz (500MB)
 
     #[cfg(unix)]
     #[test]
+    fn brew_real_output_sample_is_parsed_safely() {
+        let sample_output = r#"Would remove: /opt/homebrew/var/homebrew/tmp/.cellar/xorgproto (267 files, 4.1MB)
+Would remove: /opt/homebrew/var/homebrew/tmp/.cellar/libpng (27 files, 1.4MB)
+Would remove: /opt/homebrew/var/homebrew/tmp/.cellar/harfbuzz (95 files, 14.1MB)
+Would remove: /opt/homebrew/var/homebrew/tmp/.cellar/pcre2 (244 files, 7.3MB)
+Would remove (broken link): /opt/homebrew/share/man/man1/npm-adduser.1
+Would remove (broken link): /opt/homebrew/share/man/man5/npm-shrinkwrap-json.5
+Would remove (empty directory): /opt/homebrew/lib/gio/modules
+Would remove (empty directory): /opt/homebrew/lib/gio
+Would remove: /opt/homebrew/Library/Homebrew/vendor/portable-ruby/4.0.6 (1,707 files, 34.6MB)
+==> This operation would free approximately 61.5MB of disk space."#;
+
+        // Part one: gives NO item whose path is "brew://old-versions".
+        let d1 = TempDir::new().unwrap();
+        let home1 = d1.path().join("__home");
+        let bin1 = home1.join(".cargo/bin");
+        write_fake_brew(&bin1, &format!("cat << 'EOF'\n{sample_output}\nEOF"));
+
+        let r1 = scan(d1.path(), &["homebrew"]);
+        assert!(
+            r1.items
+                .iter()
+                .all(|i| i.item.path != "brew://old-versions"),
+            "expected no brew://old-versions item"
+        );
+
+        // Part two: second fake home with the same output plus one more line
+        let d2 = TempDir::new().unwrap();
+        let home2 = d2.path().join("__home");
+        let bin2 = home2.join(".cargo/bin");
+        let sample_output_with_node = format!(
+            "{sample_output}\nWould remove: /opt/homebrew/Cellar/node/22.1.0 (2,456 files, 61.2MB)"
+        );
+        write_fake_brew(
+            &bin2,
+            &format!("cat << 'EOF'\n{sample_output_with_node}\nEOF"),
+        );
+
+        let r2 = scan(d2.path(), &["homebrew"]);
+        let old_versions: Vec<_> = r2
+            .items
+            .iter()
+            .filter(|i| i.item.path == "brew://old-versions")
+            .collect();
+        assert_eq!(old_versions.len(), 1);
+        let item = old_versions[0];
+        assert_eq!(item.item.size_bytes, 61_200_000);
+        assert!(
+            item.item.description.contains("1 old versions"),
+            "expected description to contain '1 old versions', got: {}",
+            item.item.description
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn brew_cleanup_runs_exact_args_and_parses_freed_bytes() {
         let d = TempDir::new().unwrap();
         let bin = d.path().join("bin");
