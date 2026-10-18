@@ -53,7 +53,7 @@
 - [x] 2.9b Python: بيئات .venv و venv (متوسط) (أُنجزت 2026-10-17)
 - [x] 2.9c Python: Conda بالأمر الرسمي (متوسط) (أُنجزت 2026-10-17)
 - [x] 2.10 Go (متوسط) (أُنجزت 2026-10-18)
-- [ ] 2.11 المحررات: VS Code و Cursor و JetBrains (متوسط)
+- [x] 2.11 المحررات: VS Code و Cursor و JetBrains (متوسط) (أُنجزت 2026-10-18)
 - [ ] 2.12 Docker و OrbStack و Colima (عالي)
 - [ ] 2.13 Homebrew (متوسط)
 - [ ] 2.14 نماذج الذكاء الاصطناعي (متوسط)
@@ -523,13 +523,16 @@ for e in WalkDir::new(p).follow_links(false) {
 
 **ليش:** كاش المحررات ومجلد workspaceStorage يكبرون، والإضافات تخلّي نسخ قديمة بعد التحديث.
 
-**الحل:** - لكل من `Code` و `Cursor` داخل `~/Library/Application Support`: `Cache` و `CachedData` و `CachedExtensionVSIXs` و `logs` بحالة SAFE، و `User/workspaceStorage` بحالة REVIEW.
-- بـ `~/.vscode/extensions`: إذا موجود أكثر من إصدار لنفس الإضافة، القديم يُقترح للحذف.
-- JetBrains: مجلدات الإصدارات القديمة بـ `~/Library/Caches/JetBrains`.
+**الحل:** ثلاثة أجزاء بوحدة `editors` (ملف `editors.rs`):
 
-**الملفات:** `rules`
+- **كاش عائلة VS Code:** `Code` و `Code - Insiders` و `VSCodium` داخل `~/Library/Application Support`: `Cache` و `Code Cache` و `GPUCache` و `DawnGraphiteCache` و `DawnWebGPUCache` و `CachedData` و `CachedExtensionVSIXs` و `Crashpad` و `logs`، كلها SAFE. كاش Cursor و Windsurf و Trae و Kiro و Antigravity بقي ضمن وحدة AI Tools ولا يتكرر.
+- **بيانات المشاريع اليتيمة (`workspaceStorage`):** كل مجلد HASH يطلع سطر لحاله، وما ينعرض إلا إذا المشروع اللي يخصه انحذف فعلاً (بدل ما نقترح المجلد كله). الشرط: `workspace.json` يشير لمسار `file://` والمجلد الأب موجود وقابل للقراءة والمشروع نفسه يرجع `NotFound`. أي حالة ثانية (قرص خارجي مفصول، رفض صلاحية، مسار `vscode-remote`، ملف تالف أو ناقص) ما تنعرض أبداً. الدرجة REVIEW، وتصير DANGER إذا بداخله `chatSessions` (محادثات Copilot ما ترجع).
+- **JetBrains:** مجلدات `~/Library/Caches/JetBrains` (REVIEW) و `~/Library/Logs/JetBrains` (SAFE) للإصدارات القديمة بس. أحدث إصدار لكل منتج يبقى دائماً، والمقارنة رقمية (2024.10 أحدث من 2024.9). مجلد `Application Support/JetBrains` (الإعدادات) محمي ولا ينفحص.
+- **محمي دائماً:** `settings.json` و `keybindings.json` و `snippets` و `profiles` و `globalStorage` لكل المحررات.
 
-**متى نعتبرها خلصت:** النسخ القديمة من الإضافات تطلع منفصلة.
+**الملفات:** `src-tauri/src/cleanup_engine/editors.rs, ai_rules.rs, cleanup_engine.rs, ScanView.tsx, brandRules.ts`
+
+**متى نعتبرها خلصت:** فحص على الماك بوحدة Editors يطلّع كاش VS Code بدرجة SAFE والمشاريع المحذوفة بدرجة REVIEW وإصدارات JetBrains القديمة بس، وما يطلع أي ملف إعدادات. (114 اختبار تنجح، منها اختبارات سلبية للقرص المفصول والمسارات البعيدة والملفات التالفة.)
 
 ### 2.12 Docker و OrbStack و Colima
 
