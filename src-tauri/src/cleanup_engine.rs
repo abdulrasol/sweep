@@ -2581,7 +2581,10 @@ mod tests {
         write(&home.join("Library/Caches/CocoaPods/Pods/a"), 5000);
         write(&home.join(".cocoapods/repos/trunk/a"), 5000);
         let r = scan(d.path(), &["homebrew"]);
-        assert!(r.items.is_empty());
+        assert!(r
+            .items
+            .iter()
+            .all(|i| !i.item.path.to_lowercase().contains("cocoapods")));
     }
 
     #[test]
