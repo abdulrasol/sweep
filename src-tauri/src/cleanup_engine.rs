@@ -29,6 +29,7 @@ mod native_commands;
 mod node;
 mod rust;
 mod simulators;
+mod system;
 mod versions;
 
 use native_commands::NativeCommand;
@@ -1126,6 +1127,7 @@ pub fn scan_directory(
     docker::collect(env, &enabled, &mut candidates);
     brew::collect(env, &enabled, &mut candidates);
     ai_models::collect(env, &enabled, &mut candidates);
+    system::collect(env, &enabled, &mut candidates);
     collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
 
     candidates.retain(|c| !is_ignored(&c.path));
@@ -1192,6 +1194,7 @@ fn module_group(module: &str) -> &'static str {
     match module {
         "ai_assistants" | "ai" => "AI Tools",
         "editors" => "Editors",
+        "system" => "System",
         "os_system" | "social" | "adobe" => "System & Apps",
         _ => "Dev Tools",
     }

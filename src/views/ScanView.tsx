@@ -54,6 +54,7 @@ const GLOBAL_MODULES: ModuleDef[] = [
   { id: 'social', title: 'Chat and media apps', icon: SiDiscord, color: '#5865F2', description: 'Telegram media, Discord and Spotify caches.', review: true },
   { id: 'adobe', title: 'Adobe', icon: HardDrive, color: '#FF3D00', description: 'After Effects and Premiere media cache.', review: true },
   { id: 'os_system', title: 'App caches', icon: HardDrive, color: 'currentColor', description: 'Each folder in ~/Library/Caches over 10 MB, listed for review.', review: true },
+  { id: 'system', title: 'System', icon: HardDrive, color: 'currentColor', description: 'System logs, iPhone backups and the Trash. Backups are marked Danger.', review: true },
   { id: 'docker', title: 'Docker', icon: SiDocker, color: '#2496ED', description: 'Build cache, stopped containers and unused images through the docker CLI. Volumes are never touched.', review: true },
 ];
 
