@@ -7,6 +7,8 @@ interface SettingsViewProps {
   onAccentChange: (accent: string) => void;
   theme: 'light' | 'dark';
   onThemeChange: (theme: 'light' | 'dark') => void;
+  deleteMode: 'trash' | 'permanent';
+  onDeleteModeChange: (mode: 'trash' | 'permanent') => void;
   ignoredPaths: string[];
   onUnhide: (path: string) => void;
   onUnhideAll: () => void;
@@ -27,7 +29,8 @@ function Row({ title, hint, children }: { title: string; hint: string; children:
 }
 
 export default function SettingsView({
-  accent, onAccentChange, theme, onThemeChange, ignoredPaths, onUnhide, onUnhideAll,
+  accent, onAccentChange, theme, onThemeChange,
+  deleteMode, onDeleteModeChange, ignoredPaths, onUnhide, onUnhideAll,
 }: SettingsViewProps) {
   return (
     <div className="max-w-3xl mx-auto px-6 py-6 space-y-6">
@@ -69,6 +72,31 @@ export default function SettingsView({
                 >
                   <span className="w-3 h-3 rounded-full" style={{ backgroundColor: c.hex }} />
                   {c.label}
+                </button>
+              ))}
+            </div>
+          </Row>
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <h3 className="text-sm font-semibold">Removal</h3>
+        <div className="bg-surface-container border border-outline rounded-xl divide-y divide-outline">
+          <Row
+            title="When removing files"
+            hint="The Trash lets you undo, but it frees no space until you empty it. Items over 5 GB, items already in the Trash and items removed by their own tool (Docker, Homebrew, Ollama) are always removed for good."
+          >
+            <div className="flex rounded-lg border border-outline p-0.5 bg-surface-dim" role="radiogroup" aria-label="When removing files">
+              {(['trash', 'permanent'] as const).map(mode => (
+                <button
+                  key={mode}
+                  role="radio"
+                  aria-checked={deleteMode === mode}
+                  onClick={() => onDeleteModeChange(mode)}
+                  className={`px-3 py-1.5 rounded-md text-sm transition-colors
+                    ${deleteMode === mode ? 'bg-surface-container shadow-sm font-medium' : 'text-on-surface/60 hover:text-on-surface'}`}
+                >
+                  {mode === 'trash' ? 'Move to Trash' : 'Delete permanently'}
                 </button>
               ))}
             </div>

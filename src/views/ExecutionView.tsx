@@ -4,6 +4,7 @@ import { invoke, formatBytes } from '../lib/tauri';
 
 interface ExecutionViewProps {
   items: CleanupItem[];
+  deleteMode: 'trash' | 'permanent';
   onRunningChange: (running: boolean) => void;
   onScanAgain: () => void;
   onChangeScope: () => void;
@@ -12,7 +13,7 @@ interface ExecutionViewProps {
 type ItemState =
   | { kind: 'pending' }
   | { kind: 'working' }
-  | { kind: 'done'; freed: number }
+  | { kind: 'done'; freed: number; trashed: boolean }
   | { kind: 'failed'; error: string }
   | { kind: 'skipped' };
 
@@ -22,7 +23,7 @@ const tildePath = (path: string) => path.replace(/^\/Users\/[^/]+/, '~');
 const name = (path: string) => path.split('/').filter(Boolean).pop() ?? path;
 const parent = (path: string) => tildePath(path.split('/').slice(0, -1).join('/') || '/');
 
-export default function ExecutionView({ items, onRunningChange, onScanAgain, onChangeScope }: ExecutionViewProps) {
+export default function ExecutionView({ items, deleteMode, onRunningChange, onScanAgain, onChangeScope }: ExecutionViewProps) {
   const [states, setStates] = useState<ItemState[]>(() => items.map(() => ({ kind: 'pending' })));
   const [phase, setPhase] = useState<Phase>('running');
   const [current, setCurrent] = useState(0);
@@ -52,8 +53,9 @@ export default function ExecutionView({ items, onRunningChange, onScanAgain, onC
         try {
           const result = await invoke<{ bytes: number; trashed: boolean }>('cleanup_item', {
             id: items[i].id,
+            mode: deleteMode,
           });
-          set(i, { kind: 'done', freed: result.bytes });
+          set(i, { kind: 'done', freed: result.bytes, trashed: result.trashed });
         } catch (err) {
           set(i, { kind: 'failed', error: String(err) });
         }
@@ -70,7 +72,14 @@ export default function ExecutionView({ items, onRunningChange, onScanAgain, onC
     rowRefs.current[current]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [current]);
 
-  const freed = states.reduce((sum, s) => sum + (s.kind === 'done' ? s.freed : 0), 0);
+  const freed = states.reduce(
+    (sum, s) => sum + (s.kind === 'done' && !s.trashed ? s.freed : 0),
+    0,
+  );
+  const trashedBytes = states.reduce(
+    (sum, s) => sum + (s.kind === 'done' && s.trashed ? s.freed : 0),
+    0,
+  );
   const doneCount = states.filter(s => s.kind === 'done').length;
   const failed = states.filter(s => s.kind === 'failed').length;
   const finished = states.filter(s => s.kind === 'done' || s.kind === 'failed').length;
@@ -113,6 +122,11 @@ export default function ExecutionView({ items, onRunningChange, onScanAgain, onC
             <div className="text-xs text-on-surface/50 tabular-nums">
               freed of {formatBytes(selectedBytes)} selected
             </div>
+            {trashedBytes > 0 && (
+              <div className="text-xs text-on-surface/50">
+                {formatBytes(trashedBytes)} moved to the Trash. Empty the Trash to free that space.
+              </div>
+            )}
           </div>
         </div>
 
@@ -201,7 +215,7 @@ export default function ExecutionView({ items, onRunningChange, onScanAgain, onC
                   {s.kind === 'skipped' ? 'Skipped' : formatBytes(item.size_bytes)}
                 </span>
                 <span className="sr-only">
-                  {s.kind === 'done' ? 'Removed' : s.kind === 'failed' ? 'Failed' : s.kind === 'working' ? 'Removing' : s.kind === 'skipped' ? 'Skipped' : 'Waiting'}
+                  {s.kind === 'done' ? (s.trashed ? 'In Trash' : 'Removed') : s.kind === 'failed' ? 'Failed' : s.kind === 'working' ? 'Removing' : s.kind === 'skipped' ? 'Skipped' : 'Waiting'}
                 </span>
               </li>
             );

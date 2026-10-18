@@ -38,6 +38,13 @@ export default function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
     localStorage.getItem('sweep_theme') === 'light' ? 'light' : 'dark',
   );
+  const [deleteMode, setDeleteMode] = useState<'trash' | 'permanent'>(() => {
+    try {
+      return localStorage.getItem('sweep_delete_mode') === 'permanent' ? 'permanent' : 'trash';
+    } catch {
+      return 'trash';
+    }
+  });
 
   useEffect(() => {
     const fetchSysInfo = () =>
@@ -54,9 +61,10 @@ export default function App() {
     localStorage.setItem('sweep_ignored', JSON.stringify(ignoredPaths));
     localStorage.setItem('sweep_accent', accent);
     localStorage.setItem('sweep_theme', theme);
+    localStorage.setItem('sweep_delete_mode', deleteMode);
     localStorage.removeItem('sweep_auto_purge');
     localStorage.removeItem('sweep_verbose');
-  }, [scanPath, selectedModules, ignoredPaths, accent, theme]);
+  }, [scanPath, selectedModules, ignoredPaths, accent, theme, deleteMode]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -93,6 +101,7 @@ export default function App() {
             scanPath={scanPath}
             selectedModules={selectedModules}
             ignoredPaths={ignoredPaths}
+            deleteMode={deleteMode}
             onIgnore={(path) => setIgnoredPaths(prev => [...new Set([...prev, path])])}
             onStartCleaning={startCleaning}
             onChangeScope={() => setActiveView('scan')}
@@ -103,6 +112,7 @@ export default function App() {
           return (
             <ExecutionView
               items={cleanRun}
+              deleteMode={deleteMode}
               onRunningChange={setCleaning}
               onScanAgain={() => navigate('review')}
               onChangeScope={() => navigate('scan')}
@@ -133,6 +143,8 @@ export default function App() {
             onAccentChange={setAccent}
             theme={theme}
             onThemeChange={setTheme}
+            deleteMode={deleteMode}
+            onDeleteModeChange={setDeleteMode}
             ignoredPaths={ignoredPaths}
             onUnhide={(path) => setIgnoredPaths(prev => prev.filter(p => p !== path))}
             onUnhideAll={() => setIgnoredPaths([])}

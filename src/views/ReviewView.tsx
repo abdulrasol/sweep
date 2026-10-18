@@ -5,11 +5,13 @@ import {
 } from 'lucide-react';
 import { invoke, formatBytes } from '../lib/tauri';
 import { BrandTile, groupIcon } from '../lib/brands';
+import { goesPermanent } from '../lib/deleteMode';
 
 interface ReviewViewProps {
   scanPath: string;
   selectedModules: string[];
   ignoredPaths: string[];
+  deleteMode: 'trash' | 'permanent';
   onIgnore: (path: string) => void;
   onStartCleaning: (items: CleanupItem[]) => void;
   onChangeScope: () => void;
@@ -94,7 +96,7 @@ function Checkbox({ checked, partial, disabled, onClick, label }: {
   );
 }
 
-export default function ReviewView({ scanPath, selectedModules, ignoredPaths, onIgnore, onStartCleaning, onChangeScope }: ReviewViewProps) {
+export default function ReviewView({ scanPath, selectedModules, ignoredPaths, deleteMode, onIgnore, onStartCleaning, onChangeScope }: ReviewViewProps) {
   const [items, setItems] = useState<CleanupItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -176,6 +178,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
   const maxSize = visible.reduce((m, i) => Math.max(m, i.size_bytes), 1);
   const selectedItems = items.filter(i => selectedIds.has(i.id));
   const selectedBytes = sum(selectedItems);
+  const permanentCount = deleteMode === 'trash' ? selectedItems.filter(goesPermanent).length : 0;
   const needsConfirm = selectedItems.some(i => i.status === 'DANGER');
   const canStart = selectedItems.length > 0 && (!needsConfirm || confirmText === 'DELETE');
   const safetyCounts = (['SAFE', 'REVIEW', 'DANGER'] as SafetyLevel[]).map(
@@ -537,6 +540,11 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
               >
                 Clear selection
               </button>
+              {permanentCount > 0 && (
+                <span className="text-xs text-warning">
+                  {permanentCount} selected {permanentCount === 1 ? 'item will be' : 'items will be'} removed for good, not moved to the Trash.
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-3">
