@@ -8,7 +8,7 @@ use super::{is_real_dir, Action, Candidate, Env, Safety};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 use Safety::{Danger, Review, Safe};
 
 const MODULE: &str = "system";
@@ -17,6 +17,11 @@ const GROUP: &str = "System";
 const LOGS_DESCRIPTION: &str = "Log files. Apps write new ones when needed.";
 const TRASH_DESCRIPTION: &str = "Already in the Trash. Removing it frees the space for good.";
 const UNKNOWN_DATE: &str = "an unknown date";
+
+/// Extensions of installer and archive files offered from `~/Downloads`.
+const DOWNLOAD_EXTENSIONS: &[&str] = &["dmg", "pkg", "xip", "ipa", "apk", "zip"];
+/// A download is offered only once it has not changed for longer than this.
+const OLD_DOWNLOAD_AGE_SECS: u64 = 30 * 86_400;
 
 /// Direct children of `~/Library/Logs` covered by another module; skipped here.
 const LOGS_COVERED: &[&str] = &[
@@ -35,6 +40,7 @@ pub(super) fn collect(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidat
     collect_logs(env, out);
     collect_backups(env, out);
     collect_trash(env, out);
+    collect_downloads(env, out);
 }
 
 /// One item per direct child of `~/Library/Logs`, plus the shared DiagnosticReports folder.
@@ -150,6 +156,70 @@ fn collect_trash(env: &Env, out: &mut Vec<Candidate>) {
     }
 }
 
+fn collect_downloads(env: &Env, out: &mut Vec<Candidate>) {
+    collect_downloads_at(env, SystemTime::now(), out);
+}
+
+/// One item per old installer or archive directly in `~/Downloads`.
+/// Only direct children are considered: the folder is never entered, and a
+/// missing or unreadable Downloads folder yields no items.
+fn collect_downloads_at(env: &Env, now: SystemTime, out: &mut Vec<Candidate>) {
+    let downloads = env.home.join("Downloads");
+    let Ok(entries) = fs::read_dir(&downloads) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        let Some(extension) = path.extension().map(|e| e.to_string_lossy().to_lowercase()) else {
+            continue;
+        };
+        if !DOWNLOAD_EXTENSIONS.contains(&extension.as_str()) {
+            continue;
+        }
+        // symlink_metadata never follows a link; only a regular file counts.
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.file_type().is_file() {
+            continue;
+        }
+        let Ok(modified) = meta.modified() else {
+            continue;
+        };
+        let Ok(age) = now.duration_since(modified) else {
+            continue;
+        };
+        if age.as_secs() <= OLD_DOWNLOAD_AGE_SECS {
+            continue;
+        }
+        let days = age.as_secs() / 86_400;
+        let date = modified
+            .duration_since(UNIX_EPOCH)
+            .map(|d| civil_date(d.as_secs()))
+            .unwrap_or_else(|_| UNKNOWN_DATE.to_string());
+        out.push(Candidate {
+            path,
+            file_type: name,
+            category: "Old Download".to_string(),
+            group: GROUP,
+            safety: Review,
+            description: format!(
+                "Installer or archive in Downloads, last changed on {date} ({days} days ago). It is your own file, so check it before removing."
+            ),
+            blocked_if_running: Vec::new(),
+            project_root: None,
+            action: Action::DeletePath,
+            known_size: None,
+            min_bytes: 1,
+            catch_all: false,
+        });
+    }
+}
+
 /// Modification time of `path` as `YYYY-MM-DD` (UTC), or a placeholder text.
 /// A time before 1970 or a missing mtime never fails the scan.
 fn item_date(path: &Path) -> String {
@@ -187,6 +257,7 @@ fn civil_date(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     use tempfile::TempDir;
 
     fn collect_from(home: &Path) -> Vec<Candidate> {
@@ -197,6 +268,19 @@ mod tests {
         let mut out = Vec::new();
         collect(&env, &enabled, &mut out);
         out
+    }
+
+    fn downloads_from(home: &Path, now: SystemTime) -> Vec<Candidate> {
+        let env = Env {
+            home: home.to_path_buf(),
+        };
+        let mut out = Vec::new();
+        collect_downloads_at(&env, now, &mut out);
+        out
+    }
+
+    fn now_plus_days(days: u64) -> SystemTime {
+        SystemTime::now() + Duration::from_secs(days * 86_400)
     }
 
     fn names(items: &[Candidate]) -> Vec<String> {
@@ -321,6 +405,97 @@ mod tests {
         write(&home.join(".Trash/leftover.bin"));
 
         let items = collect_from(home);
+        assert!(!items.is_empty());
+        for item in &items {
+            assert!(item.path.starts_with(home), "{}", item.path.display());
+        }
+    }
+
+    #[test]
+    fn downloads_list_old_installers() {
+        let d = TempDir::new().unwrap();
+        let home = d.path();
+        let downloads = home.join("Downloads");
+        fs::create_dir_all(&downloads).unwrap();
+        for name in [
+            "app.dmg",
+            "tool.PKG",
+            "backup.zip",
+            "x.xip",
+            "a.ipa",
+            "b.apk",
+        ] {
+            write(&downloads.join(name));
+        }
+
+        let items = downloads_from(home, now_plus_days(40));
+        assert_eq!(items.len(), 6, "{}", names(&items).join(","));
+        assert!(items.iter().all(|c| c.safety == Review));
+        assert!(items.iter().all(|c| c.category == "Old Download"));
+    }
+
+    #[test]
+    fn downloads_ignore_other_files() {
+        let d = TempDir::new().unwrap();
+        let home = d.path();
+        let downloads = home.join("Downloads");
+        fs::create_dir_all(&downloads).unwrap();
+        // Negative: unknown extensions and a bare "zip" name are never listed.
+        for name in ["notes.txt", "photo.png", "report.pdf", "doc.docx", "zip"] {
+            write(&downloads.join(name));
+        }
+
+        let items = downloads_from(home, now_plus_days(40));
+        assert!(items.is_empty(), "{}", names(&items).join(","));
+    }
+
+    #[test]
+    fn downloads_ignore_fresh_files() {
+        let d = TempDir::new().unwrap();
+        let home = d.path();
+        let downloads = home.join("Downloads");
+        fs::create_dir_all(&downloads).unwrap();
+        write(&downloads.join("app.dmg"));
+
+        // Negative: a just-created file is not older than 30 days.
+        let items = downloads_from(home, SystemTime::now());
+        assert!(items.is_empty(), "{}", names(&items).join(","));
+    }
+
+    #[test]
+    fn downloads_ignore_dirs_symlinks_hidden_and_subfolders() {
+        let d = TempDir::new().unwrap();
+        let home = d.path();
+        let downloads = home.join("Downloads");
+        fs::create_dir_all(downloads.join("inner")).unwrap();
+        write(&downloads.join("inner/deep.zip"));
+        // A directory that happens to end in .zip must not be listed.
+        fs::create_dir_all(downloads.join("thing.zip")).unwrap();
+        write(&downloads.join(".hidden.zip"));
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(downloads.join("inner/deep.zip"), downloads.join("link.zip"))
+            .unwrap();
+
+        let items = downloads_from(home, now_plus_days(40));
+        assert!(items.is_empty(), "{}", names(&items).join(","));
+    }
+
+    #[test]
+    fn missing_downloads_folder_is_silent() {
+        let d = TempDir::new().unwrap();
+        let items = downloads_from(d.path(), now_plus_days(40));
+        assert!(items.is_empty(), "{}", names(&items).join(","));
+    }
+
+    #[test]
+    fn download_paths_stay_inside_the_fake_home() {
+        let d = TempDir::new().unwrap();
+        let home = d.path();
+        let downloads = home.join("Downloads");
+        fs::create_dir_all(&downloads).unwrap();
+        write(&downloads.join("app.dmg"));
+
+        let items = downloads_from(home, now_plus_days(40));
         assert!(!items.is_empty());
         for item in &items {
             assert!(item.path.starts_with(home), "{}", item.path.display());
