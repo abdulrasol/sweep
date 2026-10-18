@@ -13,13 +13,13 @@ const VS_CODE_CACHES: [GlobalRule; 9] = crate::cleanup_engine::ai_rules::electro
     MODULE,
     "VS Code Cache",
     "Code",
-    &["Code", "Electron"]
+    &["Code", "Visual Studio Code"]
 );
 const VS_CODE_INSIDERS_CACHES: [GlobalRule; 9] = crate::cleanup_engine::ai_rules::electron_caches!(
     MODULE,
     "VS Code Insiders Cache",
     "Code - Insiders",
-    &["Code - Insiders"]
+    &["Code - Insiders", "Visual Studio Code - Insiders"]
 );
 const VSCODIUM_CACHES: [GlobalRule; 9] = crate::cleanup_engine::ai_rules::electron_caches!(
     MODULE,
@@ -60,8 +60,12 @@ pub(super) const PROTECTED: &[&str] = &[
 ];
 
 const WORKSPACE_STORAGE_EDITORS: &[(&str, &str, &[&str])] = &[
-    ("Code", "VS Code", &["Code", "Electron"]),
-    ("Code - Insiders", "VS Code Insiders", &["Code - Insiders"]),
+    ("Code", "VS Code", &["Code", "Visual Studio Code"]),
+    (
+        "Code - Insiders",
+        "VS Code Insiders",
+        &["Code - Insiders", "Visual Studio Code - Insiders"],
+    ),
     ("VSCodium", "VSCodium", &["VSCodium"]),
     ("Cursor", "Cursor", &["Cursor"]),
 ];

@@ -1663,15 +1663,37 @@ pub fn execute(
     }
 }
 
-/// Lower-cased names of running processes.
+pub fn bundle_name(exe_path: &str) -> Option<String> {
+    let p = Path::new(exe_path);
+    let mut last_app = None;
+    for comp in p.components() {
+        let s = comp.as_os_str().to_string_lossy();
+        if let Some(name) = s.strip_suffix(".app") {
+            if !name.is_empty() {
+                last_app = Some(name.to_lowercase());
+            }
+        }
+    }
+    last_app
+}
+
+/// Lower-cased names of running processes and macOS app bundles.
 pub fn running_process_names() -> HashSet<String> {
-    use sysinfo::{ProcessRefreshKind, RefreshKind, System};
-    let sys =
-        System::new_with_specifics(RefreshKind::new().with_processes(ProcessRefreshKind::new()));
-    sys.processes()
-        .values()
-        .map(|p| p.name().to_lowercase())
-        .collect()
+    use sysinfo::{ProcessRefreshKind, RefreshKind, System, UpdateKind};
+    let sys = System::new_with_specifics(
+        RefreshKind::new()
+            .with_processes(ProcessRefreshKind::new().with_exe(UpdateKind::OnlyIfNotSet)),
+    );
+    let mut names = HashSet::new();
+    for p in sys.processes().values() {
+        names.insert(p.name().to_lowercase());
+        if let Some(exe) = p.exe() {
+            if let Some(app) = bundle_name(&exe.to_string_lossy()) {
+                names.insert(app);
+            }
+        }
+    }
+    names
 }
 
 pub fn blocking_app(item: &ScannedItem, running: &HashSet<String>) -> Option<&'static str> {
@@ -1915,6 +1937,35 @@ mod tests {
         let r = scan_directory(d.path(), &["unity".into()], &[], &env, &running);
         assert_eq!(r.items[0].item.blocked_by.as_deref(), Some("Unity"));
         assert_eq!(r.items[0].item.status, Danger);
+    }
+
+    #[test]
+    fn test_bundle_name() {
+        assert_eq!(
+            bundle_name("/Applications/Antigravity IDE.app/Contents/MacOS/Electron"),
+            Some("antigravity ide".to_string())
+        );
+        assert_eq!(
+            bundle_name("/Applications/Visual Studio Code.app/Contents/MacOS/Electron"),
+            Some("visual studio code".to_string())
+        );
+        assert_eq!(bundle_name("/usr/bin/python3"), None);
+    }
+
+    #[test]
+    fn test_blocking_app_bundle_matching() {
+        let mut item = scanned(Path::new("/dummy"));
+        item.blocked_if_running = vec!["Code", "Visual Studio Code"];
+
+        let running_unrelated: HashSet<String> =
+            ["electron".to_string(), "antigravity ide".to_string()].into();
+        assert_eq!(blocking_app(&item, &running_unrelated), None);
+
+        let running_vscode: HashSet<String> = ["visual studio code".to_string()].into();
+        assert_eq!(
+            blocking_app(&item, &running_vscode),
+            Some("Visual Studio Code")
+        );
     }
 
     #[cfg(unix)]

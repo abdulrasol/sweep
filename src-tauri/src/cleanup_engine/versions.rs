@@ -15,18 +15,26 @@ use std::path::{Path, PathBuf};
 
 /// (extensions dir relative to home, editor name, editor process names)
 const EXTENSION_DIRS: &[(&str, &str, &[&str])] = &[
-    (".vscode/extensions", "VS Code", &["Code", "Electron"]),
+    (
+        ".vscode/extensions",
+        "VS Code",
+        &["Code", "Visual Studio Code"],
+    ),
     (
         ".vscode-insiders/extensions",
         "VS Code Insiders",
-        &["Code - Insiders"],
+        &["Code - Insiders", "Visual Studio Code - Insiders"],
     ),
     (".cursor/extensions", "Cursor", &["Cursor"]),
-    (".antigravity/extensions", "Antigravity", &["Antigravity"]),
+    (
+        ".antigravity/extensions",
+        "Antigravity",
+        &["Antigravity", "Antigravity IDE"],
+    ),
     (
         ".antigravity-ide/extensions",
         "Antigravity",
-        &["Antigravity"],
+        &["Antigravity", "Antigravity IDE"],
     ),
     (".trae/extensions", "Trae", &["Trae"]),
     (".trae-cn/extensions", "Trae CN", &["Trae CN"]),

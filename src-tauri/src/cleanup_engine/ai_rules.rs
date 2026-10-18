@@ -221,7 +221,7 @@ pub(crate) use electron_caches;
 const CLAUDE: &[&str] = &["Claude"];
 const CHATGPT: &[&str] = &["ChatGPT"];
 const CURSOR: &[&str] = &["Cursor"];
-const ANTIGRAVITY: &[&str] = &["Antigravity"];
+const ANTIGRAVITY: &[&str] = &["Antigravity", "Antigravity IDE"];
 const NONE: &[&str] = &[];
 
 const CLAUDE_DESKTOP: [GlobalRule; 9] = electron_caches!("Claude Desktop", "Claude", CLAUDE);
@@ -410,7 +410,7 @@ const OTHERS: &[GlobalRule] = &[
     history(
         "Copilot Chat (VS Code)",
         "Library/Application Support/Code/User/workspaceStorage/*/chatSessions",
-        &["Code", "Electron"],
+        &["Code", "Visual Studio Code"],
         false,
         "Copilot Chat history for one VS Code workspace.",
     ),
