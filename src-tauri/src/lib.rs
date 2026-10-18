@@ -1,3 +1,4 @@
+mod access;
 mod cleanup_engine;
 
 use cleanup_engine::{CleanupItem, Env, ScannedItem};
@@ -183,6 +184,34 @@ fn open_external(url: String) -> Result<(), String> {
         .map_err(|e| format!("Could not open the link: {e}"))
 }
 
+/// Report whether macOS is hiding protected folders (Full Disk Access, PLAN 3.8).
+/// On other systems this permission does not exist, so the answer is unknown.
+#[tauri::command]
+fn check_full_disk_access() -> access::FdaStatus {
+    if cfg!(target_os = "macos") {
+        match dirs::home_dir() {
+            Some(home) => access::full_disk_access_at(&home),
+            None => access::FdaStatus::Unknown,
+        }
+    } else {
+        access::FdaStatus::Unknown
+    }
+}
+
+/// Open the Full Disk Access pane in System Settings. Fixed URL, takes no arguments.
+#[tauri::command]
+fn open_privacy_settings() -> Result<(), String> {
+    if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+            .arg(access::PRIVACY_URL)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("Could not open Privacy settings: {e}"))
+    } else {
+        Err("Full Disk Access is only used on macOS.".to_string())
+    }
+}
+
 #[derive(serde::Serialize)]
 struct SystemInfo {
     os_name: String,
@@ -263,7 +292,9 @@ pub fn run() {
             open_external,
             reveal_item,
             get_system_info,
-            get_app_version
+            get_app_version,
+            check_full_disk_access,
+            open_privacy_settings
         ])
         .build(tauri::generate_context!());
 

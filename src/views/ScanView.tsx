@@ -1,4 +1,4 @@
-import { useState, useEffect, type ComponentType } from 'react';
+import { useState, useEffect, useCallback, type ComponentType } from 'react';
 import { FolderOpen, HardDrive, Monitor, Bot, ScanSearch } from 'lucide-react';
 import {
   SiFlutter, SiNodedotjs, SiRust, SiPython, SiDocker, SiHomebrew, SiPhp, SiKotlin, SiGo,
@@ -99,10 +99,26 @@ export default function ScanView({ initialPath, initialModules, onScan }: ScanVi
   const [path, setPath] = useState(initialPath);
   const [enabled, setEnabled] = useState<Set<string>>(new Set(initialModules.filter(id => AVAILABLE_IDS.includes(id))));
   const [pickError, setPickError] = useState<string | null>(null);
+  const [fdaStatus, setFdaStatus] = useState<string>('unknown');
+
+  const checkAccess = useCallback(async () => {
+    try {
+      setFdaStatus(await invoke<string>('check_full_disk_access'));
+    } catch {
+      setFdaStatus('unknown');
+    }
+  }, []);
 
   useEffect(() => {
     if (initialPath) setPath(initialPath);
   }, [initialPath]);
+
+  useEffect(() => {
+    checkAccess();
+    // Re-check when the window regains focus, so the card disappears after access is granted.
+    window.addEventListener('focus', checkAccess);
+    return () => window.removeEventListener('focus', checkAccess);
+  }, [checkAccess]);
 
   const chooseFolder = async () => {
     try {
@@ -141,6 +157,30 @@ export default function ScanView({ initialPath, initialModules, onScan }: ScanVi
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-6 py-6 space-y-8">
+          {fdaStatus === 'missing' && (
+            <section className="border border-warning/40 bg-warning/[0.06] rounded-2xl p-5 space-y-3">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold">Sweep cannot see some protected folders</h3>
+                <p className="text-xs text-on-surface/60 leading-relaxed">
+                  Without Full Disk Access, macOS hides folders like iPhone backups, the Trash and Safari data, so they may be missing from the results. Allow Sweep in Privacy and Security, then quit and reopen Sweep.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => { invoke('open_privacy_settings').catch(() => {}); }}
+                  className="px-3.5 py-2 rounded-lg border border-outline bg-surface-container text-sm font-medium hover:bg-surface-bright transition-colors"
+                >
+                  Open Privacy Settings
+                </button>
+                <button
+                  onClick={checkAccess}
+                  className="px-3.5 py-2 rounded-lg border border-outline bg-surface-container text-sm font-medium hover:bg-surface-bright transition-colors"
+                >
+                  Check again
+                </button>
+              </div>
+            </section>
+          )}
           <header className="space-y-1.5">
             <h2 className="text-xl font-semibold tracking-tight">Choose what to scan</h2>
             <p className="text-sm text-on-surface/60 max-w-2xl">
