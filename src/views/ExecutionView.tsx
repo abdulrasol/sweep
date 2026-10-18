@@ -50,8 +50,10 @@ export default function ExecutionView({ items, onRunningChange, onScanAgain, onC
         setCurrent(i);
         set(i, { kind: 'working' });
         try {
-          const freed = await invoke<number>('cleanup_item', { id: items[i].id });
-          set(i, { kind: 'done', freed });
+          const result = await invoke<{ bytes: number; trashed: boolean }>('cleanup_item', {
+            id: items[i].id,
+          });
+          set(i, { kind: 'done', freed: result.bytes });
         } catch (err) {
           set(i, { kind: 'failed', error: String(err) });
         }

@@ -14,6 +14,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use walkdir::WalkDir;
 
 mod ai_models;
@@ -94,6 +95,36 @@ pub enum Action {
     DeletePath,
     /// Run an official tool instead (PLAN 3.3). See `native_commands`.
     Command(NativeCommand),
+}
+
+/// How a scanned item is removed from disk (PLAN 3.7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeleteMode {
+    /// Remove the path completely.
+    Permanent,
+    /// Move the path to the system Trash when that is safe, else delete it.
+    Trash,
+}
+
+impl DeleteMode {
+    /// Parse a mode sent by the UI. Only the exact lower-case names are accepted.
+    pub fn parse(s: &str) -> Option<DeleteMode> {
+        match s {
+            "permanent" => Some(DeleteMode::Permanent),
+            "trash" => Some(DeleteMode::Trash),
+            _ => None,
+        }
+    }
+}
+
+/// Above this size an item is deleted permanently instead of filling the Trash.
+const TRASH_MAX_BYTES: u64 = 5_000_000_000;
+
+/// What one removal did: the bytes freed, and whether it went to the Trash.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct Removed {
+    pub bytes: u64,
+    pub trashed: bool,
 }
 
 #[derive(Debug, Default)]
@@ -513,7 +544,7 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         ".cache/uv",
         "Package Cache",
         Safe,
-        &["pip", "pip3", "uv", "poetry"],
+        &["pip", "pip3", "uv", "uvx", "poetry"],
     ),
     g(
         "python",
@@ -773,7 +804,7 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         "AppData/Local/uv/cache",
         "Package Cache",
         Safe,
-        &["pip", "pip3", "uv", "poetry"],
+        &["pip", "pip3", "uv", "uvx", "poetry"],
     ),
     g(
         "python",
@@ -908,7 +939,7 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         ".cache/uv",
         "Package Cache",
         Safe,
-        &["pip", "pip3", "uv", "poetry"],
+        &["pip", "pip3", "uv", "uvx", "poetry"],
     ),
     g(
         "python",
@@ -1594,16 +1625,55 @@ pub fn protected_paths(home: &Path) -> Vec<PathBuf> {
     v
 }
 
-/// Validate and delete one scanned item.
-pub fn delete_path(
+/// True when an error means "the directory still has entries". Something wrote
+/// into the folder between listing it and removing it.
+fn is_directory_not_empty(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::DirectoryNotEmpty || matches!(e.raw_os_error(), Some(66) | Some(39))
+}
+
+/// Remove a directory, retrying only while it is not empty. `attempts` is the
+/// maximum number of `remover` calls; the last error is returned if they all
+/// fail. Any other error (and NotFound) is returned immediately.
+fn remove_dir_retrying(
+    path: &Path,
+    attempts: u32,
+    delay: Duration,
+    remover: &dyn Fn(&Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let mut last_err = None;
+    for _ in 0..attempts {
+        match remover(path) {
+            Ok(()) => return Ok(()),
+            Err(e) if is_directory_not_empty(&e) => {
+                last_err = Some(e);
+                if !delay.is_zero() {
+                    std::thread::sleep(delay);
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| io::Error::other("could not remove directory")))
+}
+
+/// Move a path to the system Trash with the `trash` crate.
+fn os_trash(path: &Path) -> Result<(), String> {
+    trash::delete(path).map_err(|e| e.to_string())
+}
+
+/// Validate and remove one scanned item. Returns true when it was moved to the
+/// Trash. Every safety check runs before anything is removed.
+pub fn delete_path_with(
     item: &ScannedItem,
     allowed_roots: &[PathBuf],
     protected: &[PathBuf],
-) -> Result<(), String> {
+    mode: DeleteMode,
+    trasher: &dyn Fn(&Path) -> Result<(), String>,
+) -> Result<bool, String> {
     let path = Path::new(&item.item.path);
     let meta = match fs::symlink_metadata(path) {
         Ok(m) => m,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(format!("Cannot read {}: {e}", path.display())),
     };
 
@@ -1636,32 +1706,80 @@ pub fn delete_path(
         ));
     }
 
+    // The Trash is used only for a small, real entry that is not the Trash itself.
+    // A symlink is always removed as a link, never moved.
+    let trash_component = std::ffi::OsStr::new(".Trash");
+    let use_trash = mode == DeleteMode::Trash
+        && !meta.file_type().is_symlink()
+        && item.item.size_bytes <= TRASH_MAX_BYTES
+        && item.item.category != "Trash"
+        && !canonical
+            .components()
+            .any(|c| c.as_os_str() == trash_component);
+
+    if use_trash {
+        trasher(path)
+            .map_err(|e| format!("Could not move {} to the Trash: {e}", path.display()))?;
+        if fs::symlink_metadata(path).is_ok() {
+            return Err(format!(
+                "{} still exists after moving to the Trash.",
+                path.display()
+            ));
+        }
+        return Ok(true);
+    }
+
     let result = if meta.is_dir() {
-        fs::remove_dir_all(path)
+        remove_dir_retrying(path, 3, Duration::from_millis(150), &|p| {
+            fs::remove_dir_all(p)
+        })
     } else {
         // Plain files and symlinks (the link itself, never its target).
         fs::remove_file(path)
     };
     match result {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Ok(()) => Ok(false),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) if is_directory_not_empty(&e) => Err(format!(
+            "Could not remove {} because something is still writing into it. Close the apps that use it and try again.",
+            path.display()
+        )),
         Err(e) => Err(format!("Failed to delete {}: {e}", path.display())),
     }
 }
 
 /// Remove one scanned item: delete its path or run its official command.
-/// Returns the bytes freed: the scanned size, unless the command measured it.
+/// `Removed::bytes` is the amount a command measured, when it reports one;
+/// otherwise it is the item's scanned size.
 pub fn execute(
     item: &ScannedItem,
     allowed_roots: &[PathBuf],
     protected: &[PathBuf],
-) -> Result<u64, String> {
+    mode: DeleteMode,
+) -> Result<Removed, String> {
+    execute_with(item, allowed_roots, protected, mode, &os_trash)
+}
+
+fn execute_with(
+    item: &ScannedItem,
+    allowed_roots: &[PathBuf],
+    protected: &[PathBuf],
+    mode: DeleteMode,
+    trasher: &dyn Fn(&Path) -> Result<(), String>,
+) -> Result<Removed, String> {
+    let bytes = item.item.size_bytes;
     match &item.action {
         Action::DeletePath => {
-            delete_path(item, allowed_roots, protected).map(|()| item.item.size_bytes)
+            let trashed = delete_path_with(item, allowed_roots, protected, mode, trasher)?;
+            Ok(Removed { bytes, trashed })
         }
+        // Official commands decide on their own how to remove; the mode is ignored.
         Action::Command(cmd) => {
-            native_commands::run(cmd).map(|freed| freed.unwrap_or(item.item.size_bytes))
+            let freed = native_commands::run(cmd)?;
+            Ok(Removed {
+                bytes: freed.unwrap_or(bytes),
+                trashed: false,
+            })
         }
     }
 }
@@ -1713,6 +1831,7 @@ pub fn blocking_app(item: &ScannedItem, running: &HashSet<String>) -> Option<&'s
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::{Cell, RefCell};
     use std::process::Command;
     use tempfile::TempDir;
 
@@ -2015,6 +2134,33 @@ mod tests {
         }
     }
 
+    fn item_with(path: &Path, category: &str, size_bytes: u64) -> ScannedItem {
+        let mut item = scanned(path);
+        item.item.category = category.to_string();
+        item.item.size_bytes = size_bytes;
+        item
+    }
+
+    /// Permanent-delete helper for tests: the trasher must never be called.
+    fn delete_permanently(
+        item: &ScannedItem,
+        allowed_roots: &[PathBuf],
+        protected: &[PathBuf],
+    ) -> Result<(), String> {
+        delete_path_with(
+            item,
+            allowed_roots,
+            protected,
+            DeleteMode::Permanent,
+            &no_trasher,
+        )
+        .map(|_| ())
+    }
+
+    fn no_trasher(_: &Path) -> Result<(), String> {
+        panic!("the trasher must not be called for a permanent delete")
+    }
+
     #[test]
     fn delete_refuses_protected_and_outside_paths() {
         let d = TempDir::new().unwrap();
@@ -2024,18 +2170,18 @@ mod tests {
         let protected = protected_paths(&home);
         let roots = vec![home.clone(), root.join("code")];
 
-        assert!(delete_path(&scanned(&home), &roots, &protected).is_err());
-        assert!(delete_path(&scanned(&home.join("Documents")), &roots, &protected).is_err());
-        assert!(delete_path(&scanned(&root), &roots, &protected).is_err());
+        assert!(delete_permanently(&scanned(&home), &roots, &protected).is_err());
+        assert!(delete_permanently(&scanned(&home.join("Documents")), &roots, &protected).is_err());
+        assert!(delete_permanently(&scanned(&root), &roots, &protected).is_err());
 
         let outside = root.join("elsewhere/build");
         fs::create_dir_all(&outside).unwrap();
-        assert!(delete_path(&scanned(&outside), &roots, &protected).is_err());
+        assert!(delete_permanently(&scanned(&outside), &roots, &protected).is_err());
         assert!(outside.exists());
 
         let ok = root.join("code/app/build");
         write(&ok.join("x"), 10);
-        assert!(delete_path(&scanned(&ok), &roots, &protected).is_ok());
+        assert!(delete_permanently(&scanned(&ok), &roots, &protected).is_ok());
         assert!(!ok.exists());
     }
 
@@ -2052,7 +2198,7 @@ mod tests {
 
         let roots = vec![root.join("code")];
         let protected = protected_paths(&root.join("home"));
-        delete_path(&scanned(&link), &roots, &protected).unwrap();
+        delete_permanently(&scanned(&link), &roots, &protected).unwrap();
         assert!(fs::symlink_metadata(&link).is_err());
         assert!(precious.join("data.txt").exists());
     }
@@ -2065,13 +2211,320 @@ mod tests {
         write(&p.join("x"), 10);
         let mut item = scanned(&p);
         item.canonical = root.join("code/other");
-        let err = delete_path(
+        let err = delete_permanently(
             &item,
             &[root.join("code")],
             &protected_paths(&root.join("home")),
         );
         assert!(err.is_err());
         assert!(p.exists());
+    }
+
+    // ----- Trash or permanent (PLAN 3.7) --------------------------------------
+
+    #[test]
+    fn permanent_mode_never_calls_the_trasher() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let file = root.join("code/app/build/out.bin");
+        write(&file, 10);
+        let roots = vec![root.join("code")];
+        let protected = protected_paths(&root.join("home"));
+
+        let calls = Cell::new(0);
+        let trasher = |_: &Path| -> Result<(), String> {
+            calls.set(calls.get() + 1);
+            Ok(())
+        };
+        let trashed = delete_path_with(
+            &scanned(&file),
+            &roots,
+            &protected,
+            DeleteMode::Permanent,
+            &trasher,
+        )
+        .unwrap();
+        assert!(!trashed);
+        assert_eq!(calls.get(), 0);
+        assert!(!file.exists());
+    }
+
+    #[test]
+    fn trash_mode_moves_a_small_item_into_the_fake_trash() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let fake = root.join("fake-trash");
+        fs::create_dir_all(&fake).unwrap();
+        let file = root.join("code/app/build/out.bin");
+        write(&file, 10);
+        let roots = vec![root.join("code")];
+        let protected = protected_paths(&root.join("home"));
+
+        let seen = RefCell::new(Vec::new());
+        let dest = fake.join("out.bin");
+        let trasher = |p: &Path| -> Result<(), String> {
+            seen.borrow_mut().push(p.to_path_buf());
+            fs::rename(p, &dest).map_err(|e| e.to_string())
+        };
+        let trashed = delete_path_with(
+            &scanned(&file),
+            &roots,
+            &protected,
+            DeleteMode::Trash,
+            &trasher,
+        )
+        .unwrap();
+        assert!(trashed);
+        assert_eq!(*seen.borrow(), vec![file.clone()]);
+        assert!(!file.exists());
+        assert!(dest.exists());
+    }
+
+    #[test]
+    fn trash_mode_deletes_items_above_the_size_limit() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let file = root.join("code/app/build/big.bin");
+        write(&file, 10);
+        let roots = vec![root.join("code")];
+        let protected = protected_paths(&root.join("home"));
+
+        let calls = Cell::new(0);
+        let trasher = |_: &Path| -> Result<(), String> {
+            calls.set(calls.get() + 1);
+            Ok(())
+        };
+        let item = item_with(&file, "", TRASH_MAX_BYTES + 1);
+        let trashed =
+            delete_path_with(&item, &roots, &protected, DeleteMode::Trash, &trasher).unwrap();
+        assert!(!trashed);
+        assert_eq!(calls.get(), 0);
+        assert!(!file.exists());
+    }
+
+    #[test]
+    fn trash_mode_never_trashes_the_trash_category() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let file = root.join("code/app/build/out.bin");
+        write(&file, 10);
+        let roots = vec![root.join("code")];
+        let protected = protected_paths(&root.join("home"));
+
+        let calls = Cell::new(0);
+        let trasher = |_: &Path| -> Result<(), String> {
+            calls.set(calls.get() + 1);
+            Ok(())
+        };
+        let item = item_with(&file, "Trash", 10);
+        let trashed =
+            delete_path_with(&item, &roots, &protected, DeleteMode::Trash, &trasher).unwrap();
+        assert!(!trashed);
+        assert_eq!(calls.get(), 0);
+        assert!(!file.exists());
+    }
+
+    #[test]
+    fn trash_mode_never_trashes_a_dot_trash_path() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let file = root.join(".Trash/old.bin");
+        write(&file, 10);
+        let roots = vec![root.clone()];
+        let protected = protected_paths(&root.join("home"));
+
+        let calls = Cell::new(0);
+        let trasher = |_: &Path| -> Result<(), String> {
+            calls.set(calls.get() + 1);
+            Ok(())
+        };
+        let item = item_with(&file, "", 10);
+        let trashed =
+            delete_path_with(&item, &roots, &protected, DeleteMode::Trash, &trasher).unwrap();
+        assert!(!trashed);
+        assert_eq!(calls.get(), 0);
+        assert!(!file.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn trash_mode_removes_symlinks_as_links() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let precious = root.join("precious");
+        write(&precious.join("data.txt"), 10);
+        let link = root.join("code/app/build");
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&precious, &link).unwrap();
+        let roots = vec![root.join("code")];
+        let protected = protected_paths(&root.join("home"));
+
+        let calls = Cell::new(0);
+        let trasher = |_: &Path| -> Result<(), String> {
+            calls.set(calls.get() + 1);
+            Ok(())
+        };
+        let trashed = delete_path_with(
+            &scanned(&link),
+            &roots,
+            &protected,
+            DeleteMode::Trash,
+            &trasher,
+        )
+        .unwrap();
+        assert!(!trashed);
+        assert_eq!(calls.get(), 0);
+        assert!(fs::symlink_metadata(&link).is_err());
+        assert!(precious.join("data.txt").exists());
+    }
+
+    #[test]
+    fn a_failing_trasher_leaves_the_file_alone() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let file = root.join("code/app/build/out.bin");
+        write(&file, 10);
+        let roots = vec![root.join("code")];
+        let protected = protected_paths(&root.join("home"));
+
+        let trasher = |_: &Path| -> Result<(), String> { Err("boom".into()) };
+        let err = delete_path_with(
+            &scanned(&file),
+            &roots,
+            &protected,
+            DeleteMode::Trash,
+            &trasher,
+        )
+        .unwrap_err();
+        assert!(err.contains("Could not move"), "unexpected error: {err}");
+        assert!(file.exists());
+    }
+
+    #[test]
+    fn a_trasher_that_moves_nothing_is_an_error() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let file = root.join("code/app/build/out.bin");
+        write(&file, 10);
+        let roots = vec![root.join("code")];
+        let protected = protected_paths(&root.join("home"));
+
+        let trasher = |_: &Path| -> Result<(), String> { Ok(()) };
+        let err = delete_path_with(
+            &scanned(&file),
+            &roots,
+            &protected,
+            DeleteMode::Trash,
+            &trasher,
+        );
+        assert!(err.is_err());
+        assert!(file.exists());
+    }
+
+    #[test]
+    fn trash_mode_still_refuses_protected_and_outside_paths() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let protected = protected_paths(&home);
+        let roots = vec![home.clone(), root.join("code")];
+        let outside = root.join("elsewhere/build");
+        fs::create_dir_all(&outside).unwrap();
+
+        let calls = Cell::new(0);
+        let trasher = |_: &Path| -> Result<(), String> {
+            calls.set(calls.get() + 1);
+            Ok(())
+        };
+        assert!(delete_path_with(
+            &scanned(&home),
+            &roots,
+            &protected,
+            DeleteMode::Trash,
+            &trasher
+        )
+        .is_err());
+        assert!(delete_path_with(
+            &scanned(&outside),
+            &roots,
+            &protected,
+            DeleteMode::Trash,
+            &trasher
+        )
+        .is_err());
+        assert_eq!(calls.get(), 0);
+        assert!(home.exists());
+        assert!(outside.exists());
+    }
+
+    #[test]
+    fn delete_mode_parse_accepts_only_the_exact_names() {
+        assert_eq!(DeleteMode::parse("trash"), Some(DeleteMode::Trash));
+        assert_eq!(DeleteMode::parse("permanent"), Some(DeleteMode::Permanent));
+        assert_eq!(DeleteMode::parse("TRASH"), None);
+        assert_eq!(DeleteMode::parse(""), None);
+        assert_eq!(DeleteMode::parse("x"), None);
+    }
+
+    // ----- Retrying a directory that is still being written to ---------------
+
+    #[test]
+    fn remove_dir_retrying_retries_until_it_succeeds() {
+        let d = TempDir::new().unwrap();
+        let dir = d.path().join("uv-cache");
+        fs::create_dir_all(&dir).unwrap();
+
+        let calls = Cell::new(0);
+        let remover = |_: &Path| -> io::Result<()> {
+            calls.set(calls.get() + 1);
+            if calls.get() < 3 {
+                Err(io::Error::from(io::ErrorKind::DirectoryNotEmpty))
+            } else {
+                Ok(())
+            }
+        };
+        assert!(remove_dir_retrying(&dir, 3, Duration::ZERO, &remover).is_ok());
+        assert_eq!(calls.get(), 3);
+    }
+
+    #[test]
+    fn remove_dir_retrying_stops_after_the_last_attempt() {
+        let calls = Cell::new(0);
+        let remover = |_: &Path| -> io::Result<()> {
+            calls.set(calls.get() + 1);
+            Err(io::Error::from(io::ErrorKind::DirectoryNotEmpty))
+        };
+        let err =
+            remove_dir_retrying(Path::new("/nowhere"), 3, Duration::ZERO, &remover).unwrap_err();
+        assert!(is_directory_not_empty(&err));
+        assert_eq!(calls.get(), 3);
+    }
+
+    #[test]
+    fn remove_dir_retrying_does_not_retry_other_errors() {
+        let calls = Cell::new(0);
+        let remover = |_: &Path| -> io::Result<()> {
+            calls.set(calls.get() + 1);
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        };
+        let err =
+            remove_dir_retrying(Path::new("/nowhere"), 3, Duration::ZERO, &remover).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn remove_dir_retrying_returns_not_found_immediately() {
+        let calls = Cell::new(0);
+        let remover = |_: &Path| -> io::Result<()> {
+            calls.set(calls.get() + 1);
+            Err(io::Error::from(io::ErrorKind::NotFound))
+        };
+        let err =
+            remove_dir_retrying(Path::new("/nowhere"), 3, Duration::ZERO, &remover).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert_eq!(calls.get(), 1);
     }
 
     #[test]
@@ -2284,7 +2737,7 @@ mod tests {
             ".gemini/oauth_creds.json",
         ] {
             assert!(
-                delete_path(&scanned(&home.join(rel)), &roots, &protected).is_err(),
+                delete_permanently(&scanned(&home.join(rel)), &roots, &protected).is_err(),
                 "{rel} was not protected"
             );
         }
@@ -3102,7 +3555,7 @@ mod tests {
             .any(|p| p.ends_with("Library/Application Support/JetBrains")));
         let app_support_item =
             scanned(&home.join("Library/Application Support/JetBrains/IntelliJIdea2023.1"));
-        assert!(delete_path(&app_support_item, &[home.clone()], &protected).is_err());
+        assert!(delete_permanently(&app_support_item, &[home.clone()], &protected).is_err());
     }
 
     #[test]
@@ -3653,6 +4106,39 @@ echo "==> This operation has freed approximately 1.5GB of disk space.""#
         assert_eq!(lines, vec!["cleanup", "AUTO_UPDATE=1"]);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn command_action_uses_the_bytes_the_tool_measured() {
+        use super::native_commands::NativeCommand;
+        let d = TempDir::new().unwrap();
+        let brew = write_fake_brew(
+            &d.path().join("bin"),
+            "echo '==> This operation has freed approximately 7MB of disk space.'",
+        );
+        let mut item = scanned(&d.path().join("bin"));
+        item.item.size_bytes = 100;
+        item.action = Action::Command(NativeCommand::BrewCleanup { brew });
+
+        let removed = execute_with(&item, &[], &[], DeleteMode::Trash, &no_trasher).unwrap();
+        assert_eq!(removed.bytes, 7_000_000);
+        assert!(!removed.trashed);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_action_falls_back_to_the_scanned_size() {
+        use super::native_commands::NativeCommand;
+        let d = TempDir::new().unwrap();
+        let brew = write_fake_brew(&d.path().join("bin"), "echo done");
+        let mut item = scanned(&d.path().join("bin"));
+        item.item.size_bytes = 100;
+        item.action = Action::Command(NativeCommand::BrewCleanup { brew });
+
+        let removed = execute_with(&item, &[], &[], DeleteMode::Trash, &no_trasher).unwrap();
+        assert_eq!(removed.bytes, 100);
+        assert!(!removed.trashed);
+    }
+
     #[test]
     fn brew_calls_never_contain_forbidden_flags_or_commands() {
         let preview_args: &[&str] = &["cleanup", "-n"];
@@ -3864,7 +4350,7 @@ echo "==> This operation has freed approximately 1.5GB of disk space.""#
 
         let roots = vec![home.clone()];
         assert!(
-            delete_path(&scanned(&home.join(token_rel)), &roots, &protected).is_err(),
+            delete_permanently(&scanned(&home.join(token_rel)), &roots, &protected).is_err(),
             "{token_rel} delete was not refused"
         );
     }

@@ -1,7 +1,7 @@
 mod access;
 mod cleanup_engine;
 
-use cleanup_engine::{CleanupItem, Env, ScannedItem};
+use cleanup_engine::{CleanupItem, DeleteMode, Env, Removed, ScannedItem};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -61,9 +61,19 @@ async fn scan_environment(
     Ok(items)
 }
 
-/// Delete one item from the last scan. Returns the bytes freed.
+/// Delete one item from the last scan. Returns the bytes freed and whether the
+/// item went to the Trash.
 #[tauri::command]
-async fn cleanup_item(store: State<'_, Mutex<ScanStore>>, id: String) -> Result<u64, String> {
+async fn cleanup_item(
+    store: State<'_, Mutex<ScanStore>>,
+    id: String,
+    mode: Option<String>,
+) -> Result<Removed, String> {
+    let mode = match mode {
+        None => DeleteMode::Permanent,
+        Some(value) => DeleteMode::parse(&value).ok_or("Unknown delete mode.")?,
+    };
+
     // Claim the item: a second request for the same id (a double-click, or React running an
     // effect twice in development) finds nothing and never deletes the same path concurrently.
     let (item, roots, generation) = {
@@ -83,14 +93,14 @@ async fn cleanup_item(store: State<'_, Mutex<ScanStore>>, id: String) -> Result<
         }
         let home = dirs::home_dir().ok_or("Cannot find your home folder.")?;
         let protected = cleanup_engine::protected_paths(&home);
-        cleanup_engine::execute(&item_for_task, &roots, &protected)
+        cleanup_engine::execute(&item_for_task, &roots, &protected, mode)
     })
     .await
     .map_err(|e| format!("Cleanup failed: {e}"))
     .and_then(|r| r);
 
     match result {
-        Ok(freed) => Ok(freed),
+        Ok(removed) => Ok(removed),
         Err(err) => {
             // Give the item back so the user can retry, unless a newer scan replaced the store.
             let mut guard = store.lock().map_err(lock_err)?;
