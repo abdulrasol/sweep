@@ -54,7 +54,8 @@
 - [x] 2.9c Python: Conda بالأمر الرسمي (متوسط) (أُنجزت 2026-10-17)
 - [x] 2.10 Go (متوسط) (أُنجزت 2026-10-18)
 - [x] 2.11 المحررات: VS Code و Cursor و JetBrains (متوسط) (أُنجزت 2026-10-18)
-- [ ] 2.12 Docker و OrbStack و Colima (عالي)
+- [ ] 2.12 Docker و OrbStack و Colima (عالي) (الكود منفّذ، ينتظر فحص يدوي بـ Docker شغال)
+- [ ] 2.12b Docker volumes (عالي)
 - [ ] 2.13 Homebrew (متوسط)
 - [ ] 2.14 نماذج الذكاء الاصطناعي (متوسط)
 - [ ] 2.15 ملفات النظام والملفات الكبيرة (متوسط)
@@ -540,13 +541,31 @@ for e in WalkDir::new(p).follow_links(false) {
 
 **ليش:** ملف `Docker.raw` ممكن يوصل 60 GB أو أكثر، بس مسحه يدوياً يضيّع كل الصور والـ volumes.
 
-**الحل:** - اقرأ `docker system df --format json` واعرض الصور والحاويات والـ build cache والـ volumes كل وحدة سطر.
-- التنظيف: `docker builder prune -f` و `docker image prune -a -f` و `docker container prune -f`. أما الـ volumes فبحالة DANGER مع تأكيد.
-- إذا Docker مو شغال، اعرض رسالة بدل ما يفشل الفحص.
+**الحل:** وحدة `docker` بملف `docker.rs` تقرأ `docker system df --format '{{json .}}'` بمهلة 15 ثانية، وتطلّع ثلاثة أسطر بحجم «القابل للاسترجاع» (Reclaimable) مثل ما يعرضه Docker:
 
-**الملفات:** `native_commands.rs`
+- **كاش البناء** (`docker builder prune -a -f`): SAFE.
+- **الحاويات المتوقفة** (`docker container prune -f`): REVIEW.
+- **الصور غير المستخدمة** (`docker image prune -a -f`): REVIEW، لأن الصورة اللي انبنت على هذا الجهاز فقط ما ترجع تنزل.
+- **أوامر ثابتة فقط:** ثلاثة أوامر محددة بنوع `DockerKind` بدون أي نص حر. ممنوع `system prune` و `--volumes` وأي لمس لملف `Docker.raw` أو مجلدات OrbStack و Colima.
+- **إذا Docker مو منصّب أو مو شغال أو تأخر:** الفحص يتجاوزه بصمت بدون خطأ.
+- **المساحة المحررة** تنقرأ من سطر `Total reclaimed space` بمخرجات الأمر، لأن `Docker.raw` على Docker Desktop ما يصغر فوراً.
+- **الـ volumes** مأجلة للمهمة 2.12b.
 
-**متى نعتبرها خلصت:** أحجام Docker تطلع مطابقة لناتج `docker system df`.
+**الملفات:** `src-tauri/src/cleanup_engine/docker.rs, native_commands.rs, cleanup_engine.rs, ScanView.tsx, ReviewView.tsx`
+
+**متى نعتبرها خلصت:** أحجام الأسطر الثلاثة تطلع مطابقة لسطور Reclaimable بناتج `docker system df` على جهاز فيه Docker أو OrbStack شغال، والتنظيف يشتغل بدون ما يمس الـ volumes. (121 اختبار بـ docker مزيّف تنجح، والفحص اليدوي بـ Docker حقيقي لسه.)
+
+### 2.12b Docker volumes
+
+**الأولوية:** عالي · **الوقت التقريبي:** ساعتين
+
+**ليش:** الـ volumes غالباً أكبر جزء بـ Docker، بس ممكن تحتوي قواعد بيانات حقيقية.
+
+**الحل:** ما نستخدم `docker volume prune` إلا بعد فحص إصدار Docker: بالإصدارات الأقدم من 23 هذا الأمر يمسح حتى الـ volumes المسماة، فنرفض. حجم `Reclaimable` للـ volumes بـ `system df` ما يطابق اللي يمسحه الأمر، فنحتاج حساب خاص بالـ volumes المجهولة (anonymous) فقط. الدرجة DANGER ويطلب كتابة DELETE.
+
+**الملفات:** `docker.rs, native_commands.rs`
+
+**متى نعتبرها خلصت:** الـ volumes المسماة ما تنمسح أبداً، والإصدار القديم يرفض التنفيذ، واختبارات سلبية تغطي الحالتين.
 
 ### 2.13 Homebrew
 
