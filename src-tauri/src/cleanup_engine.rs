@@ -3772,4 +3772,309 @@ echo "==> This operation has freed approximately 1.5GB of disk space.""#
         assert_eq!(item.item.file_type, "PyTorch Cache");
         assert_eq!(item.item.status, Review);
     }
+
+    // ----- Ollama Models (PLAN 2.14b) ----------------------------------------
+
+    #[cfg(unix)]
+    fn write_fake_ollama(bin_dir: &Path, script_body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        fs::create_dir_all(bin_dir).unwrap();
+        let path = bin_dir.join("ollama");
+        fs::write(&path, format!("#!/bin/sh\n{script_body}\n")).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ollama_manifests_discovery_and_filtering() {
+        use super::native_commands::NativeCommand;
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write_fake_ollama(&home.join(".cargo/bin"), "exit 0");
+
+        let manifests = home.join(".ollama/models/manifests");
+
+        // 1. library/llama3/latest (config size 100, layers 1000 and 2000) -> 3100
+        let m1 = manifests.join("registry.ollama.ai/library/llama3/latest");
+        fs::create_dir_all(m1.parent().unwrap()).unwrap();
+        fs::write(
+            &m1,
+            r#"{"config": {"size": 100}, "layers": [{"size": 1000}, {"size": 2000}]}"#,
+        )
+        .unwrap();
+
+        // 2. someone/mymodel/7b
+        let m2 = manifests.join("registry.ollama.ai/someone/mymodel/7b");
+        fs::create_dir_all(m2.parent().unwrap()).unwrap();
+        fs::write(
+            &m2,
+            r#"{"config": {"size": 50}, "layers": [{"size": 500}]}"#,
+        )
+        .unwrap();
+
+        // 3. hf.co/org/repo/q4
+        let m3 = manifests.join("hf.co/org/repo/q4");
+        fs::create_dir_all(m3.parent().unwrap()).unwrap();
+        fs::write(
+            &m3,
+            r#"{"config": {"size": 20}, "layers": [{"size": 200}]}"#,
+        )
+        .unwrap();
+
+        // 4. invalid JSON -> skipped
+        let m_bad = manifests.join("registry.ollama.ai/library/badjson/latest");
+        fs::create_dir_all(m_bad.parent().unwrap()).unwrap();
+        fs::write(&m_bad, "not valid json").unwrap();
+
+        // 5. hidden directory -> skipped
+        let m_hidden = manifests.join("registry.ollama.ai/library/.hidden/latest");
+        fs::create_dir_all(m_hidden.parent().unwrap()).unwrap();
+        fs::write(&m_hidden, r#"{"config": {"size": 10}}"#).unwrap();
+
+        // 6. file at wrong depth -> skipped
+        let m_shallow = manifests.join("registry.ollama.ai/library/wrong_depth.txt");
+        fs::write(&m_shallow, r#"{"config": {"size": 10}}"#).unwrap();
+
+        // 7. symlinked manifest -> skipped
+        let m_target = home.join("real_manifest");
+        fs::write(&m_target, r#"{"config": {"size": 10}}"#).unwrap();
+        let m_symlink = manifests.join("registry.ollama.ai/library/symlinked/latest");
+        fs::create_dir_all(m_symlink.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&m_target, &m_symlink).unwrap();
+
+        let r = scan(d.path(), &["ai"]);
+
+        let item1 = r
+            .items
+            .iter()
+            .find(|i| i.item.description.contains("llama3:latest"))
+            .unwrap();
+        assert_eq!(item1.item.file_type, "Ollama Models");
+        assert_eq!(item1.item.category, "AI Model Cache");
+        assert_eq!(item1.item.status, Review);
+        assert_eq!(item1.item.group, "AI Tools");
+        assert_eq!(item1.item.size_bytes, 3100);
+        assert!(matches!(
+            item1.action,
+            Action::Command(NativeCommand::OllamaRemove { ref model, .. }) if model == "llama3:latest"
+        ));
+
+        let item2 = r
+            .items
+            .iter()
+            .find(|i| i.item.description.contains("someone/mymodel:7b"))
+            .unwrap();
+        assert_eq!(item2.item.status, Review);
+        assert_eq!(item2.item.group, "AI Tools");
+        assert_eq!(item2.item.size_bytes, 550);
+        assert!(matches!(
+            item2.action,
+            Action::Command(NativeCommand::OllamaRemove { ref model, .. }) if model == "someone/mymodel:7b"
+        ));
+
+        let item3 = r
+            .items
+            .iter()
+            .find(|i| i.item.description.contains("hf.co/org/repo:q4"))
+            .unwrap();
+        assert_eq!(item3.item.status, Review);
+        assert_eq!(item3.item.group, "AI Tools");
+        assert_eq!(item3.item.size_bytes, 220);
+        assert!(matches!(
+            item3.action,
+            Action::Command(NativeCommand::OllamaRemove { ref model, .. }) if model == "hf.co/org/repo:q4"
+        ));
+
+        assert!(r.items.iter().all(|i| !i.item.path.contains("badjson")));
+        assert!(r.items.iter().all(|i| !i.item.path.contains(".hidden")));
+        assert!(r.items.iter().all(|i| !i.item.path.contains("wrong_depth")));
+        assert!(r.items.iter().all(|i| !i.item.path.contains("symlinked")));
+    }
+
+    #[test]
+    fn valid_ollama_model_cases() {
+        use super::native_commands::valid_ollama_model;
+        assert!(valid_ollama_model("llama3:latest"));
+        assert!(valid_ollama_model("someone/mymodel:7b"));
+        assert!(valid_ollama_model("registry.example.com/ns/m:1"));
+        assert!(!valid_ollama_model(""));
+        assert!(!valid_ollama_model("-rf"));
+        assert!(!valid_ollama_model("a b"));
+        assert!(!valid_ollama_model("../x"));
+        assert!(!valid_ollama_model("a;b"));
+        assert!(!valid_ollama_model("a//b"));
+        assert!(!valid_ollama_model("a:b:c"));
+        assert!(!valid_ollama_model("x\ny"));
+    }
+
+    #[test]
+    fn manifest_path_cases() {
+        use super::native_commands::manifest_path;
+        let m = Path::new("/fake/models");
+        assert_eq!(
+            manifest_path(m, "llama3:latest"),
+            Some(m.join("manifests/registry.ollama.ai/library/llama3/latest"))
+        );
+        assert_eq!(
+            manifest_path(m, "someone/mymodel:7b"),
+            Some(m.join("manifests/registry.ollama.ai/someone/mymodel/7b"))
+        );
+        assert_eq!(
+            manifest_path(m, "hf.co/org/repo:q4"),
+            Some(m.join("manifests/hf.co/org/repo/q4"))
+        );
+        assert_eq!(manifest_path(m, "a/b/c/d:tag"), None);
+        assert_eq!(manifest_path(m, "llama3"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ollama_remove_runs_and_measures_freed_blobs() {
+        use super::native_commands::{manifest_path, NativeCommand};
+        let d = TempDir::new().unwrap();
+        let home = d.path();
+        let models_dir = home.join(".ollama/models");
+        let manifest = manifest_path(&models_dir, "llama3:latest").unwrap();
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        fs::write(&manifest, "{}").unwrap();
+
+        let blob_dir = models_dir.join("blobs");
+        fs::create_dir_all(&blob_dir).unwrap();
+        let blob_file = blob_dir.join("sha256-blob1");
+        fs::write(&blob_file, vec![0u8; 10000]).unwrap();
+
+        let log_file = home.join("ollama_args.log");
+        let log_str = log_file.display().to_string();
+        let manifest_str = manifest.display().to_string();
+        let blob_str = blob_file.display().to_string();
+
+        let script = format!(
+            r#"echo "$@" >> "{log_str}"
+rm -f "{manifest_str}"
+rm -f "{blob_str}""#
+        );
+        let ollama = write_fake_ollama(&home.join("bin"), &script);
+
+        let res = native_commands::run(&NativeCommand::OllamaRemove {
+            ollama,
+            models_dir,
+            model: "llama3:latest".to_string(),
+        })
+        .unwrap();
+
+        assert!(res.is_some_and(|n| n > 0));
+        let logged = fs::read_to_string(&log_file).unwrap();
+        assert_eq!(logged.trim(), "rm llama3:latest");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ollama_remove_leaves_manifest_returns_err() {
+        use super::native_commands::{manifest_path, NativeCommand};
+        let d = TempDir::new().unwrap();
+        let home = d.path();
+        let models_dir = home.join(".ollama/models");
+        let manifest = manifest_path(&models_dir, "llama3:latest").unwrap();
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        fs::write(&manifest, "{}").unwrap();
+
+        let ollama = write_fake_ollama(&home.join("bin"), "exit 0");
+
+        let err = native_commands::run(&NativeCommand::OllamaRemove {
+            ollama,
+            models_dir,
+            model: "llama3:latest".to_string(),
+        })
+        .unwrap_err();
+
+        assert!(err.contains("did not remove"), "unexpected error: {err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ollama_remove_exit_1_returns_stderr() {
+        use super::native_commands::{manifest_path, NativeCommand};
+        let d = TempDir::new().unwrap();
+        let home = d.path();
+        let models_dir = home.join(".ollama/models");
+        let manifest = manifest_path(&models_dir, "llama3:latest").unwrap();
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        fs::write(&manifest, "{}").unwrap();
+
+        let ollama = write_fake_ollama(
+            &home.join("bin"),
+            "echo 'model not found on server' >&2\nexit 1",
+        );
+
+        let err = native_commands::run(&NativeCommand::OllamaRemove {
+            ollama,
+            models_dir,
+            model: "llama3:latest".to_string(),
+        })
+        .unwrap_err();
+
+        assert!(
+            err.contains("model not found on server"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ollama_remove_run_time_checks_refuse_invalid() {
+        use super::native_commands::NativeCommand;
+        let d = TempDir::new().unwrap();
+        let home = d.path();
+        let models_dir = home.join(".ollama/models");
+
+        let log_file = home.join("should_not_run.log");
+        let log_str = log_file.display().to_string();
+        let script = format!("echo ran >> \"{log_str}\"\nexit 0");
+        let ollama = write_fake_ollama(&home.join("bin"), &script);
+
+        // 1. Manifest file does not exist
+        let err_no_manifest = native_commands::run(&NativeCommand::OllamaRemove {
+            ollama: ollama.clone(),
+            models_dir: models_dir.clone(),
+            model: "llama3:latest".to_string(),
+        });
+        assert!(err_no_manifest.is_err());
+        assert!(!log_file.exists());
+
+        // 2. Model name is invalid
+        let err_invalid_name = native_commands::run(&NativeCommand::OllamaRemove {
+            ollama: ollama.clone(),
+            models_dir: models_dir.clone(),
+            model: "-rf".to_string(),
+        });
+        assert!(err_invalid_name.is_err());
+        assert!(!log_file.exists());
+
+        // Create manifest file so tool path checks can be tested
+        let manifest = super::native_commands::manifest_path(&models_dir, "llama3:latest").unwrap();
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        fs::write(&manifest, "{}").unwrap();
+
+        // 3. Ollama path is a directory
+        let dir_as_ollama = home.join("bin");
+        let err_dir = native_commands::run(&NativeCommand::OllamaRemove {
+            ollama: dir_as_ollama,
+            models_dir: models_dir.clone(),
+            model: "llama3:latest".to_string(),
+        });
+        assert!(err_dir.is_err());
+        assert!(!log_file.exists());
+
+        // 4. Ollama path is not named ollama
+        let wrong_name = home.join("bin").join("other_name");
+        fs::copy(&ollama, &wrong_name).unwrap();
+        let err_name = native_commands::run(&NativeCommand::OllamaRemove {
+            ollama: wrong_name,
+            models_dir: models_dir.clone(),
+            model: "llama3:latest".to_string(),
+        });
+        assert!(err_name.is_err());
+        assert!(!log_file.exists());
+    }
 }

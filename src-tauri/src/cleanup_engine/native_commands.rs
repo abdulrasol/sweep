@@ -52,6 +52,12 @@ pub enum NativeCommand {
     DockerPrune { docker: PathBuf, kind: DockerKind },
     /// `brew cleanup` with HOMEBREW_NO_AUTO_UPDATE=1, HOMEBREW_NO_ANALYTICS=1, HOMEBREW_NO_ENV_HINTS=1.
     BrewCleanup { brew: PathBuf },
+    /// `ollama rm <model>` removing a single model and leaving shared blobs to Ollama.
+    OllamaRemove {
+        ollama: PathBuf,
+        models_dir: PathBuf,
+        model: String,
+    },
 }
 
 /// Run the command. Returns the bytes freed when the command measures them itself.
@@ -214,6 +220,51 @@ pub(super) fn run(cmd: &NativeCommand) -> Result<Option<u64>, String> {
             }
             let stdout = String::from_utf8_lossy(&out.stdout);
             Ok(parse_brew_freed_bytes(&stdout))
+        }
+        NativeCommand::OllamaRemove {
+            ollama,
+            models_dir,
+            model,
+        } => {
+            if !is_tool(ollama, "ollama") {
+                return Err("Sweep refused to run an unexpected program as ollama.".to_string());
+            }
+            if !valid_ollama_model(model) {
+                return Err("Sweep refused to remove an invalid Ollama model name.".to_string());
+            }
+            let manifest = manifest_path(models_dir, model).ok_or_else(|| {
+                "Sweep refused to remove a model with an invalid manifest path.".to_string()
+            })?;
+            let meta = std::fs::symlink_metadata(&manifest).map_err(|_| {
+                "Sweep refused to remove a model whose manifest file does not exist.".to_string()
+            })?;
+            if meta.file_type().is_symlink() || !meta.is_file() {
+                return Err(
+                    "Sweep refused to remove a model whose manifest is a symlink or not a file."
+                        .to_string(),
+                );
+            }
+            let blobs = models_dir.join("blobs");
+            let before = super::disk_usage(&blobs);
+            let out = Command::new(ollama)
+                .args(["rm", model])
+                .env("PATH", child_path(ollama))
+                .output()
+                .map_err(|e| format!("Could not run ollama rm: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "ollama rm failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+            if std::fs::symlink_metadata(&manifest).is_ok() {
+                return Err(
+                    "Ollama did not remove the model. It may use a different models folder."
+                        .to_string(),
+                );
+            }
+            let after = super::disk_usage(&blobs);
+            Ok(Some(before.saturating_sub(after)))
         }
     }
 }
@@ -388,6 +439,7 @@ fn search_dirs(home: &Path) -> Vec<PathBuf> {
     dirs.push(PathBuf::from(
         "/Applications/Docker.app/Contents/Resources/bin",
     ));
+    dirs.push(PathBuf::from("/Applications/Ollama.app/Contents/Resources"));
     dirs.push(PathBuf::from("/usr/bin"));
     dirs.push(PathBuf::from("/bin"));
     dirs
@@ -399,6 +451,62 @@ pub(super) fn find_tool(home: &Path, name: &str) -> Option<PathBuf> {
         .into_iter()
         .map(|d| d.join(name))
         .find(|p| is_tool(p, name))
+}
+
+pub(super) fn valid_ollama_model(name: &str) -> bool {
+    if name.is_empty() || name.len() > 200 {
+        return false;
+    }
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphanumeric() => {}
+        _ => return false,
+    }
+    let mut colons = 0;
+    for c in name.chars() {
+        if c == ':' {
+            colons += 1;
+            if colons > 1 {
+                return false;
+            }
+        } else if !c.is_ascii_alphanumeric() && !matches!(c, '.' | '_' | '-' | '/') {
+            return false;
+        }
+    }
+    if name.contains("..") || name.contains("//") {
+        return false;
+    }
+    true
+}
+
+pub(super) fn manifest_path(models_dir: &Path, name: &str) -> Option<PathBuf> {
+    let (rest, tag) = name.rsplit_once(':')?;
+    if tag.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = rest.split('/').collect();
+    if parts.iter().any(|p| p.is_empty()) {
+        return None;
+    }
+    let manifests = models_dir.join("manifests");
+    match parts.as_slice() {
+        [x] => Some(
+            manifests
+                .join("registry.ollama.ai")
+                .join("library")
+                .join(x)
+                .join(tag),
+        ),
+        [a, b] => Some(
+            manifests
+                .join("registry.ollama.ai")
+                .join(a)
+                .join(b)
+                .join(tag),
+        ),
+        [h, a, b] => Some(manifests.join(h).join(a).join(b).join(tag)),
+        _ => None,
+    }
 }
 
 pub(super) const CONDA_ROOTS: [&str; 4] = ["anaconda3", "miniconda3", "miniforge3", "mambaforge"];
