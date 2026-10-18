@@ -48,7 +48,7 @@ const GLOBAL_MODULES: ModuleDef[] = [
   { id: 'homebrew', title: 'Homebrew', icon: SiHomebrew, color: '#FBB040', description: 'Downloaded bottles and formulae.' },
   { id: 'ai_assistants', title: 'AI assistants', icon: Bot, color: '#D97757', description: 'Caches from Claude, ChatGPT, Codex, Cursor, Gemini, Copilot and more. Chat history is marked Danger.', review: true },
   { id: 'ai', title: 'AI / ML models', icon: SiHuggingface, color: '#FFB000', description: 'Hugging Face and PyTorch model caches.', review: true },
-  { id: 'editors', title: 'Editor extensions', icon: Monitor, color: '#0EA5E9', description: 'Old extension versions in VS Code, Cursor, Windsurf and others.' },
+  { id: 'editors', title: 'Editor extensions', icon: Monitor, color: '#0EA5E9', description: 'Editor caches, leftover project data and old versions for VS Code, Cursor, Windsurf and JetBrains.' },
   { id: 'python', title: 'Python / Conda', icon: SiPython, color: '#3776AB', description: 'Conda environments (marked Danger), the Conda package cache, pip/uv/Poetry caches, and Python cache folders in projects.', review: true },
   { id: 'os', title: 'Vagrant', icon: SiVagrant, color: '#1563FF', description: 'Vagrant boxes, marked Danger.', review: true },
   { id: 'social', title: 'Chat and media apps', icon: SiDiscord, color: '#5865F2', description: 'Telegram media, Discord and Spotify caches.', review: true },

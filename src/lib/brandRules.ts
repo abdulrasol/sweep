@@ -40,7 +40,7 @@ export const BRAND_RULES: { test: RegExp; key: BrandKey }[] = [
   { test: /gemini|antigravity/, key: 'gemini' },
   { test: /copilot/, key: 'copilot' },
   { test: /cursor/, key: 'cursor' },
-  { test: /vs code|vscode|visual studio code/, key: 'vscode' },
+  { test: /vs code|vscode|visual studio code|vscodium/, key: 'vscode' },
   { test: /jetbrains|intellij|webstorm|pycharm/, key: 'jetbrains' },
   { test: /windsurf|cline|\broo\b|kilo|continue|trae|kiro|\bamp\b|opencode|aider|qwen|deepseek|kimi/, key: 'ai' },
   { test: /telegram/, key: 'telegram' },

@@ -20,6 +20,7 @@ mod ai_rules;
 mod android;
 mod conda;
 mod dart;
+mod editors;
 mod go;
 mod native_commands;
 mod node;
@@ -1135,6 +1136,7 @@ pub fn scan_directory(
     let mut candidates = Vec::new();
     collect_global(env, &enabled, &mut candidates);
     versions::collect(env, &enabled, &mut candidates);
+    editors::collect(env, &enabled, &mut candidates);
     simulators::collect(env, &enabled, &mut candidates);
     dart::collect(env, &enabled, &mut candidates);
     android::collect(env, &enabled, &mut candidates);
@@ -1214,7 +1216,10 @@ fn module_group(module: &str) -> &'static str {
 }
 
 fn collect_global(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) {
-    let rules = GLOBAL_RULES.iter().chain(ai_rules::ai_rules());
+    let rules = GLOBAL_RULES
+        .iter()
+        .chain(ai_rules::ai_rules())
+        .chain(editors::editor_rules());
     for rule in rules.filter(|r| enabled.contains(r.module)) {
         for path in expand(&env.home, rule.home_rel) {
             if rule.split_children {
@@ -1596,6 +1601,7 @@ pub fn protected_paths(home: &Path) -> Vec<PathBuf> {
         v.push(home.join(rel));
     }
     v.extend(ai_rules::PROTECTED.iter().map(|rel| home.join(rel)));
+    v.extend(editors::PROTECTED.iter().map(|rel| home.join(rel)));
     // Compare against canonical forms too (/var -> /private/var on macOS).
     let canon: Vec<PathBuf> = v.iter().filter_map(|p| fs::canonicalize(p).ok()).collect();
     v.extend(canon);
@@ -2890,5 +2896,322 @@ mod tests {
         assert!(find(&r, "go/bin").is_none());
         assert!(find(&r, "go/src").is_none());
         assert!(find(&r, "svc").is_none());
+    }
+
+    // ----- Editors (PLAN 2.11) -----------------------------------------------
+
+    #[test]
+    fn vscode_family_electron_caches_are_safe_under_editors() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(
+            &home.join("Library/Application Support/Code/Cache/data_0"),
+            5000,
+        );
+        write(
+            &home.join("Library/Application Support/Code - Insiders/Code Cache/js/x"),
+            5000,
+        );
+        write(
+            &home.join("Library/Application Support/VSCodium/GPUCache/data_1"),
+            5000,
+        );
+
+        let r = scan(d.path(), &["editors"]);
+        let code_cache = find(&r, "Code/Cache").unwrap();
+        assert_eq!(code_cache.item.status, Safe);
+        assert_eq!(code_cache.item.group, "Editors");
+
+        let insiders_cache = find(&r, "Code - Insiders/Code Cache").unwrap();
+        assert_eq!(insiders_cache.item.status, Safe);
+        assert_eq!(insiders_cache.item.group, "Editors");
+
+        let codium_cache = find(&r, "VSCodium/GPUCache").unwrap();
+        assert_eq!(codium_cache.item.status, Safe);
+        assert_eq!(codium_cache.item.group, "Editors");
+    }
+
+    #[test]
+    fn active_workspace_storage_is_not_reported() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let project = d.path().join("active_project");
+        write(&project.join("main.rs"), 100);
+
+        let ws = home.join("Library/Application Support/Code/User/workspaceStorage/active_ws");
+        fs::create_dir_all(&ws).unwrap();
+        fs::write(
+            ws.join("workspace.json"),
+            format!(r#"{{"folder": "file://{}"}}"#, project.display()),
+        )
+        .unwrap();
+        write(&ws.join("state.vscdb"), 5000);
+
+        let r = scan(d.path(), &["editors"]);
+        assert!(find(&r, "workspaceStorage/active_ws").is_none());
+    }
+
+    #[test]
+    fn orphaned_workspace_storage_without_chats_is_review() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let parent = d.path().join("projects");
+        fs::create_dir_all(&parent).unwrap();
+        let missing = parent.join("deleted_project");
+
+        let ws = home.join("Library/Application Support/Code/User/workspaceStorage/orphan_ws");
+        fs::create_dir_all(&ws).unwrap();
+        fs::write(
+            ws.join("workspace.json"),
+            format!(r#"{{"folder": "file://{}"}}"#, missing.display()),
+        )
+        .unwrap();
+        write(&ws.join("state.vscdb"), 5000);
+
+        let r = scan(d.path(), &["editors"]);
+        let item = find(&r, "workspaceStorage/orphan_ws").unwrap();
+        assert_eq!(item.item.status, Review);
+        assert_eq!(item.item.group, "Editors");
+    }
+
+    #[test]
+    fn orphaned_workspace_storage_with_chats_is_danger() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let parent = d.path().join("projects");
+        fs::create_dir_all(&parent).unwrap();
+        let missing = parent.join("deleted_with_chats");
+
+        let ws = home.join("Library/Application Support/Code/User/workspaceStorage/orphan_chat_ws");
+        fs::create_dir_all(&ws).unwrap();
+        fs::write(
+            ws.join("workspace.json"),
+            format!(r#"{{"folder": "file://{}"}}"#, missing.display()),
+        )
+        .unwrap();
+        write(&ws.join("chatSessions/session1.json"), 5000);
+
+        let r = scan(d.path(), &["editors"]);
+        let item = find(&r, "workspaceStorage/orphan_chat_ws").unwrap();
+        assert_eq!(item.item.status, Danger);
+        assert_eq!(item.item.group, "Editors");
+
+        // When scanned with both editors and ai_assistants, drop_nested keeps the parent as Danger.
+        let r_both = scan(d.path(), &["editors", "ai_assistants"]);
+        let item_both = find(&r_both, "workspaceStorage/orphan_chat_ws").unwrap();
+        assert_eq!(item_both.item.status, Danger);
+        assert!(find(&r_both, "chatSessions").is_none());
+    }
+
+    #[test]
+    fn jetbrains_old_cache_versions_are_review_and_newest_kept() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(
+            &home.join("Library/Caches/JetBrains/IntelliJIdea2023.1/caches/data"),
+            5000,
+        );
+        write(
+            &home.join("Library/Caches/JetBrains/IntelliJIdea2024.1/caches/data"),
+            5000,
+        );
+        write(
+            &home.join("Library/Caches/JetBrains/PyCharm2024.2/caches/data"),
+            5000,
+        );
+
+        let r = scan(d.path(), &["editors"]);
+        let old_idea = find(&r, "JetBrains/IntelliJIdea2023.1").unwrap();
+        assert_eq!(old_idea.item.status, Review);
+        assert_eq!(old_idea.item.group, "Editors");
+        assert!(find(&r, "JetBrains/IntelliJIdea2024.1").is_none());
+        assert!(find(&r, "JetBrains/PyCharm2024.2").is_none());
+    }
+
+    #[test]
+    fn jetbrains_old_logs_are_safe_and_app_support_untouched() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(
+            &home.join("Library/Logs/JetBrains/IntelliJIdea2023.1/idea.log"),
+            5000,
+        );
+        write(
+            &home.join("Library/Logs/JetBrains/IntelliJIdea2024.1/idea.log"),
+            5000,
+        );
+        write(
+            &home.join("Library/Application Support/JetBrains/IntelliJIdea2023.1/options.xml"),
+            5000,
+        );
+        write(
+            &home.join("Library/Application Support/JetBrains/IntelliJIdea2024.1/options.xml"),
+            5000,
+        );
+
+        let r = scan(d.path(), &["editors"]);
+        let old_log = find(&r, "JetBrains/IntelliJIdea2023.1").unwrap();
+        assert_eq!(old_log.item.status, Safe);
+        assert_eq!(old_log.item.group, "Editors");
+        assert!(find(&r, "Logs/JetBrains/IntelliJIdea2024.1").is_none());
+        assert!(find(&r, "Application Support/JetBrains").is_none());
+
+        let protected = protected_paths(&home);
+        assert!(protected
+            .iter()
+            .any(|p| p.ends_with("Library/Application Support/JetBrains")));
+        let app_support_item =
+            scanned(&home.join("Library/Application Support/JetBrains/IntelliJIdea2023.1"));
+        assert!(delete_path(&app_support_item, &[home.clone()], &protected).is_err());
+    }
+
+    #[test]
+    fn settings_and_user_data_never_offered_for_editors() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let user_files = [
+            "Library/Application Support/Code/User/settings.json",
+            "Library/Application Support/Code/User/keybindings.json",
+            "Library/Application Support/Code/User/snippets/x.json",
+            "Library/Application Support/Code/User/globalStorage/state.vscdb",
+            "Library/Application Support/Code/User/profiles/x/settings.json",
+        ];
+        for f in &user_files {
+            write(&home.join(f), 5000);
+        }
+        let r = scan(d.path(), &["editors"]);
+        for item in &r.items {
+            let item_path = Path::new(&item.item.path);
+            for f in &user_files {
+                let full = home.join(f);
+                assert!(
+                    !full.starts_with(item_path),
+                    "Result {} matches or contains protected file {}",
+                    item.item.path,
+                    full.display()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cursor_cache_appears_once_with_editors_and_ai_enabled() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(
+            &home.join("Library/Application Support/Cursor/Cache/data_0"),
+            5000,
+        );
+
+        let r = scan(d.path(), &["editors", "ai_assistants"]);
+        let count = r
+            .items
+            .iter()
+            .filter(|i| i.item.path.ends_with("Cursor/Cache"))
+            .count();
+        assert_eq!(count, 1, "expected Cursor/Cache once, found {count}");
+    }
+
+    #[test]
+    fn workspace_storage_edge_cases() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let ws = home.join("Library/Application Support/Code/User/workspaceStorage");
+
+        // 1. Without workspace.json
+        write(&ws.join("no_json/state.vscdb"), 5000);
+
+        // 2. Remote workspace
+        write(&ws.join("remote/state.vscdb"), 5000);
+        fs::write(
+            ws.join("remote/workspace.json"),
+            r#"{"folder": "vscode-remote://ssh-remote+x/home/u/p"}"#,
+        )
+        .unwrap();
+
+        // 3. Parent does not exist (e.g. unplugged drive)
+        write(&ws.join("unplugged/state.vscdb"), 5000);
+        fs::write(
+            ws.join("unplugged/workspace.json"),
+            r#"{"folder": "file:///Volumes/NoSuchDrive/proj"}"#,
+        )
+        .unwrap();
+
+        // 4. Invalid JSON
+        write(&ws.join("invalid/state.vscdb"), 5000);
+        fs::write(
+            ws.join("invalid/workspace.json"),
+            "invalid json content {{{",
+        )
+        .unwrap();
+
+        // 5. Missing project inside an EXISTING temp parent
+        let existing_parent = d.path().join("existing_parent");
+        fs::create_dir_all(&existing_parent).unwrap();
+        let missing_proj = existing_parent.join("missing_proj");
+        write(&ws.join("valid_orphan/state.vscdb"), 5000);
+        fs::write(
+            ws.join("valid_orphan/workspace.json"),
+            format!(r#"{{"folder": "file://{}"}}"#, missing_proj.display()),
+        )
+        .unwrap();
+
+        let r = scan(d.path(), &["editors"]);
+        assert!(find(&r, "workspaceStorage/no_json").is_none());
+        assert!(find(&r, "workspaceStorage/remote").is_none());
+        assert!(find(&r, "workspaceStorage/unplugged").is_none());
+        assert!(find(&r, "workspaceStorage/invalid").is_none());
+
+        let orphan = find(&r, "workspaceStorage/valid_orphan").unwrap();
+        assert_eq!(orphan.item.status, Review);
+    }
+
+    #[test]
+    fn workspace_storage_percent_encoding() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let parent = d.path().join("projects");
+        fs::create_dir_all(&parent).unwrap();
+        let my_proj = parent.join("My Project");
+        fs::create_dir_all(&my_proj).unwrap();
+        write(&my_proj.join("main.rs"), 100);
+
+        let ws = home.join("Library/Application Support/Code/User/workspaceStorage/encoded_ws");
+        fs::create_dir_all(&ws).unwrap();
+        write(&ws.join("state.vscdb"), 5000);
+        let encoded_path = my_proj.display().to_string().replace(' ', "%20");
+        fs::write(
+            ws.join("workspace.json"),
+            format!(r#"{{"folder": "file://{encoded_path}"}}"#),
+        )
+        .unwrap();
+
+        let r1 = scan(d.path(), &["editors"]);
+        assert!(find(&r1, "workspaceStorage/encoded_ws").is_none());
+
+        // Remove the project directory while keeping its parent
+        fs::remove_dir_all(&my_proj).unwrap();
+
+        let r2 = scan(d.path(), &["editors"]);
+        let item = find(&r2, "workspaceStorage/encoded_ws").unwrap();
+        assert_eq!(item.item.status, Review);
+    }
+
+    #[test]
+    fn jetbrains_version_order_is_numeric() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(
+            &home.join("Library/Caches/JetBrains/IntelliJIdea2024.9/caches/data"),
+            5000,
+        );
+        write(
+            &home.join("Library/Caches/JetBrains/IntelliJIdea2024.10/caches/data"),
+            5000,
+        );
+
+        let r = scan(d.path(), &["editors"]);
+        assert!(find(&r, "JetBrains/IntelliJIdea2024.9").is_some());
+        assert!(find(&r, "JetBrains/IntelliJIdea2024.10").is_none());
     }
 }

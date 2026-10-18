@@ -17,22 +17,32 @@ use Safety::{Danger, Review, Safe};
 
 const MODULE: &str = "ai_assistants";
 
-const fn cache(
+pub(crate) const fn cache_with_module(
+    module: &'static str,
+    category: &'static str,
     label: &'static str,
     home_rel: &'static str,
     blocked: &'static [&'static str],
 ) -> GlobalRule {
     GlobalRule {
-        module: MODULE,
+        module,
         label,
         home_rel,
-        category: "AI App Cache",
+        category,
         safety: Safe,
         blocked_if_running: blocked,
         split_children: false,
         note: "",
         min_bytes: 1,
     }
+}
+
+const fn cache(
+    label: &'static str,
+    home_rel: &'static str,
+    blocked: &'static [&'static str],
+) -> GlobalRule {
+    cache_with_module(MODULE, "AI App Cache", label, home_rel, blocked)
 }
 
 const fn history(
@@ -79,7 +89,79 @@ const fn review(
     }
 }
 
+#[macro_export]
 macro_rules! electron_caches {
+    ($module:expr, $label:expr, $dir:literal, $blocked:expr) => {
+        [
+            $crate::cleanup_engine::ai_rules::cache_with_module(
+                $module,
+                "Editor Cache",
+                $label,
+                concat!("Library/Application Support/", $dir, "/Cache"),
+                $blocked,
+            ),
+            $crate::cleanup_engine::ai_rules::cache_with_module(
+                $module,
+                "Editor Cache",
+                $label,
+                concat!("Library/Application Support/", $dir, "/Code Cache"),
+                $blocked,
+            ),
+            $crate::cleanup_engine::ai_rules::cache_with_module(
+                $module,
+                "Editor Cache",
+                $label,
+                concat!("Library/Application Support/", $dir, "/GPUCache"),
+                $blocked,
+            ),
+            $crate::cleanup_engine::ai_rules::cache_with_module(
+                $module,
+                "Editor Cache",
+                $label,
+                concat!("Library/Application Support/", $dir, "/DawnGraphiteCache"),
+                $blocked,
+            ),
+            $crate::cleanup_engine::ai_rules::cache_with_module(
+                $module,
+                "Editor Cache",
+                $label,
+                concat!("Library/Application Support/", $dir, "/DawnWebGPUCache"),
+                $blocked,
+            ),
+            $crate::cleanup_engine::ai_rules::cache_with_module(
+                $module,
+                "Editor Cache",
+                $label,
+                concat!("Library/Application Support/", $dir, "/CachedData"),
+                $blocked,
+            ),
+            $crate::cleanup_engine::ai_rules::cache_with_module(
+                $module,
+                "Editor Cache",
+                $label,
+                concat!(
+                    "Library/Application Support/",
+                    $dir,
+                    "/CachedExtensionVSIXs"
+                ),
+                $blocked,
+            ),
+            $crate::cleanup_engine::ai_rules::cache_with_module(
+                $module,
+                "Editor Cache",
+                $label,
+                concat!("Library/Application Support/", $dir, "/Crashpad"),
+                $blocked,
+            ),
+            $crate::cleanup_engine::ai_rules::cache_with_module(
+                $module,
+                "Editor Cache",
+                $label,
+                concat!("Library/Application Support/", $dir, "/logs"),
+                $blocked,
+            ),
+        ]
+    };
     ($label:expr, $dir:literal, $blocked:expr) => {
         [
             cache(
@@ -134,6 +216,7 @@ macro_rules! electron_caches {
         ]
     };
 }
+pub(crate) use electron_caches;
 
 const CLAUDE: &[&str] = &["Claude"];
 const CHATGPT: &[&str] = &["ChatGPT"];
