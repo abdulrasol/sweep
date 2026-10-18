@@ -4,7 +4,7 @@ import {
   ChevronDown, ShieldCheck, ShieldAlert, ArrowDownWideNarrow, X,
 } from 'lucide-react';
 import { invoke, formatBytes } from '../lib/tauri';
-import { BrandTile } from '../lib/brands';
+import { BrandTile, groupIcon } from '../lib/brands';
 
 interface ReviewViewProps {
   scanPath: string;
@@ -28,19 +28,33 @@ const SAFETY_STYLE: Record<SafetyLevel, { badge: string; dot: string; label: str
 
 const sum = (list: CleanupItem[]) => list.reduce((acc, i) => acc + i.size_bytes, 0);
 
-/** "…/codes/flutter/app/build" style title: the last two path segments. */
-const shortTitle = (path: string) => {
-  const parts = path.split('/').filter(Boolean);
-  return parts.slice(-2).join(' / ');
-};
-
-/** Parent folder, shortened in the middle so both ends stay readable. */
-const parentPath = (path: string, max = 70) => {
-  const parent = path.split('/').slice(0, -2).join('/') || '/';
-  const home = parent.replace(/^\/Users\/[^/]+/, '~');
+/** Full path abbreviated with '~' for home and middle ellipsis when too long. */
+const formatFullPath = (path: string, max = 70) => {
+  const home = path.replace(/^\/Users\/[^/]+/, '~');
   if (home.length <= max) return home;
   const keep = Math.floor((max - 1) / 2);
   return `${home.slice(0, keep)}…${home.slice(-keep)}`;
+};
+
+/** Displays previous path segment (muted) and last segment (semibold). */
+function renderPathTitle(path: string) {
+  const parts = path.split('/').filter(Boolean);
+  const last = parts[parts.length - 1] || path;
+  const prev = parts.length > 1 ? parts[parts.length - 2] : null;
+
+  return (
+    <span className="text-sm font-semibold truncate" title={path}>
+      {prev && <span className="text-on-surface/50 font-normal">{prev} / </span>}
+      <span>{last}</span>
+    </span>
+  );
+}
+
+/** Relative size bar width: sqrt(size / maxSize) * 100%, min 3% for size > 0. */
+const sizeBarWidth = (size: number, max: number): number => {
+  if (size <= 0 || max <= 0) return 0;
+  const pct = Math.sqrt(size / max) * 100;
+  return Math.max(3, Math.min(100, pct));
 };
 
 function Chip({ active, onClick, children, title }: {
@@ -71,11 +85,11 @@ function Checkbox({ checked, partial, disabled, onClick, label }: {
       disabled={disabled}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       className={`w-4 h-4 shrink-0 rounded border flex items-center justify-center transition-colors
-        ${checked || partial ? 'bg-primary border-primary text-on-primary' : 'border-outline-variant hover:border-primary bg-surface'}
+        ${checked || partial ? 'bg-on-surface border-on-surface text-surface' : 'border-outline-variant hover:border-outline text-on-surface bg-surface'}
         ${disabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
     >
       {checked && <Check className="w-3 h-3" strokeWidth={3} />}
-      {!checked && partial && <span className="w-2 h-0.5 bg-on-primary rounded" />}
+      {!checked && partial && <span className="w-2 h-0.5 bg-surface rounded" />}
     </button>
   );
 }
@@ -94,6 +108,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [safetyFilter, setSafetyFilter] = useState<SafetyFilter>('ALL');
   const [sortKey, setSortKey] = useState<SortKey>('size');
+  const [showAllTypes, setShowAllTypes] = useState(false);
 
   useEffect(() => {
     const run = async () => {
@@ -223,294 +238,333 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
     );
   }
 
-  const [selValue, selUnit] = formatBytes(selectedBytes).split(' ');
   const allVisible = selectionState(visible);
 
   return (
-    <div className="max-w-6xl mx-auto py-6 px-6 space-y-4">
-      {/* Summary */}
-      <section className="bg-surface-container border border-outline rounded-2xl p-6 flex flex-wrap items-center gap-6">
-        <div className="flex-1 min-w-[240px] space-y-1">
-          <h2 className="text-xl font-semibold tracking-tight">Review what to remove</h2>
-          <p className="text-sm text-on-surface/60">
-            {items.length} items, {formatBytes(sum(items))} in total.
-            Safe items are selected for you; Review and Danger items are not.
-          </p>
-          <div className="flex flex-wrap gap-3 pt-2 text-xs">
-            {safetyCounts.map(([s, list]) => (
-              <span key={s} className="flex items-center gap-1.5 text-on-surface/70">
-                <span className={`w-2 h-2 rounded-full ${SAFETY_STYLE[s].dot}`} />
-                {SAFETY_STYLE[s].label} {list.length} · {formatBytes(sum(list))}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div className="text-right">
-          <div className="text-xs text-on-surface/55">Selected</div>
-          <div className="flex items-baseline justify-end gap-1.5">
-            <span className="text-4xl font-light tracking-tight tabular-nums">{selValue}</span>
-            <span className="text-sm text-on-surface/60 font-mono">{selUnit}</span>
-          </div>
-          <div className="text-xs text-on-surface/50">{selectedItems.length} items</div>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <button
-            onClick={() => onStartCleaning(selectedItems)}
-            disabled={!canStart}
-            className="px-5 py-2.5 bg-on-surface text-surface rounded-lg font-medium text-sm hover:opacity-90 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Remove selected
-          </button>
-          <button
-            onClick={() => setScanNonce(n => n + 1)}
-            className="flex items-center justify-center gap-2 px-5 py-2 border border-outline rounded-lg text-xs font-medium text-on-surface/70 hover:bg-surface-bright transition"
-          >
-            <RefreshCw className="w-3.5 h-3.5" /> Scan again
-          </button>
-        </div>
-
-        {needsConfirm && (
-          <div className="basis-full flex flex-wrap items-center gap-3 p-3 rounded-xl border border-error/30 bg-error/10">
-            <ShieldAlert className="w-4 h-4 text-error shrink-0" />
-            <p className="text-xs text-error font-medium flex-1 min-w-[200px]">
-              Your selection includes Danger items that cannot be recovered. Type DELETE to confirm.
+    <div className="min-h-full flex flex-col justify-between">
+      <div className="max-w-6xl w-full mx-auto py-6 px-6 space-y-4 flex-1 pb-16">
+        {/* Summary */}
+        <section className="bg-surface-container border border-outline rounded-2xl p-6 flex flex-wrap items-center justify-between gap-6">
+          <div className="flex-1 min-w-[240px] space-y-1">
+            <h2 className="text-xl font-semibold tracking-tight">Review what to remove</h2>
+            <p className="text-sm text-on-surface/60">
+              {items.length} items, {formatBytes(sum(items))} in total.
+              Safe items are selected for you; Review and Danger items are not.
             </p>
-            <input
-              id="danger-confirm"
-              value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
-              placeholder="DELETE"
-              className="w-36 bg-surface border border-error/40 rounded-lg px-3 py-1.5 text-xs font-mono outline-none focus:border-error"
-            />
+            <div className="flex flex-wrap gap-3 pt-2 text-xs">
+              {safetyCounts.map(([s, list]) => (
+                <span key={s} className="flex items-center gap-1.5 text-on-surface/70">
+                  <span className={`w-2 h-2 rounded-full ${SAFETY_STYLE[s].dot}`} />
+                  {SAFETY_STYLE[s].label} {list.length} · {formatBytes(sum(list))}
+                </span>
+              ))}
+            </div>
           </div>
-        )}
-        {scanError && (
-          <p className="basis-full text-sm text-error">
-            Scan failed: {scanError}{' '}
-            <button onClick={onChangeScope} className="underline">Change scope</button>
-          </p>
-        )}
-      </section>
 
-      {/* Filters */}
-      <section className="sticky top-0 z-10 bg-surface-dim/95 backdrop-blur border border-outline rounded-2xl p-4 space-y-3">
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          <Chip active={groupFilter === 'ALL'} onClick={() => { setGroupFilter('ALL'); setTypeFilter('ALL'); }}>
-            All <span className="opacity-60 tabular-nums">{formatBytes(sum(items))}</span>
-          </Chip>
-          {groups.map(([g, list]) => (
-            <Chip key={g} active={groupFilter === g} onClick={() => { setGroupFilter(g); setTypeFilter('ALL'); }}>
-              {g} <span className="opacity-60 tabular-nums">{list.length} · {formatBytes(sum(list))}</span>
-            </Chip>
-          ))}
-        </div>
-
-        {types.length > 1 && (
-          <div className="flex gap-1.5 overflow-x-auto pb-1">
+          <div>
             <button
-              onClick={() => setTypeFilter('ALL')}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap border transition-colors
-                ${typeFilter === 'ALL' ? 'border-primary/50 bg-primary/10 text-primary' : 'border-transparent text-on-surface/60 hover:text-on-surface'}`}
+              onClick={() => setScanNonce(n => n + 1)}
+              className="flex items-center justify-center gap-2 px-5 py-2.5 border border-outline rounded-lg text-xs font-medium text-on-surface/70 hover:bg-surface-bright transition"
             >
-              All types
+              <RefreshCw className="w-3.5 h-3.5" /> Scan again
             </button>
-            {types.map(([t, list]) => (
+          </div>
+
+          {scanError && (
+            <p className="basis-full text-sm text-error">
+              Scan failed: {scanError}{' '}
+              <button onClick={onChangeScope} className="underline">Change scope</button>
+            </p>
+          )}
+        </section>
+
+        {/* Groups and Types (non-sticky, scrolls with page) */}
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Chip active={groupFilter === 'ALL'} onClick={() => { setGroupFilter('ALL'); setTypeFilter('ALL'); }}>
+              All <span className="opacity-60 tabular-nums">{formatBytes(sum(items))}</span>
+            </Chip>
+            {groups.map(([g, list]) => (
+              <Chip key={g} active={groupFilter === g} onClick={() => { setGroupFilter(g); setTypeFilter('ALL'); }}>
+                {g} <span className="opacity-60 tabular-nums">{list.length} · {formatBytes(sum(list))}</span>
+              </Chip>
+            ))}
+          </div>
+
+          {types.length > 1 && (
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
-                key={t}
-                onClick={() => setTypeFilter(t)}
+                onClick={() => setTypeFilter('ALL')}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap border transition-colors
-                  ${typeFilter === t ? 'border-primary/50 bg-primary/10 text-primary' : 'border-transparent text-on-surface/60 hover:text-on-surface'}`}
+                  ${typeFilter === 'ALL' ? 'border-primary/50 bg-primary/10 text-primary' : 'border-transparent text-on-surface/60 hover:text-on-surface'}`}
               >
-                {t} <span className="opacity-60 tabular-nums">{formatBytes(sum(list))}</span>
+                All types
               </button>
-            ))}
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex rounded-lg border border-outline overflow-hidden text-xs" role="group" aria-label="Safety level">
-            {(['ALL', 'SAFE', 'REVIEW', 'DANGER'] as SafetyFilter[]).map(s => (
-              <button
-                key={s}
-                onClick={() => setSafetyFilter(s)}
-                className={`px-3 py-1.5 font-medium transition-colors flex items-center gap-1.5
-                  ${safetyFilter === s ? 'bg-on-surface text-surface' : 'bg-surface text-on-surface/70 hover:text-on-surface'}`}
-              >
-                {s !== 'ALL' && <span className={`w-1.5 h-1.5 rounded-full ${SAFETY_STYLE[s].dot}`} />}
-                {s === 'ALL' ? 'Any level' : SAFETY_STYLE[s].label}
-              </button>
-            ))}
-          </div>
-
-          <div className="relative flex-1 min-w-[180px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-on-surface/40" />
-            <input
-              id="review-search"
-              placeholder="Search path, type or tool"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="w-full bg-surface border border-outline rounded-lg pl-9 pr-3 py-1.5 text-xs outline-none focus:border-primary/60 placeholder:text-on-surface/40"
-            />
-          </div>
-
-          <button
-            onClick={() => setSortKey(k => (k === 'size' ? 'name' : 'size'))}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-outline rounded-lg text-xs text-on-surface/70 hover:text-on-surface bg-surface"
-          >
-            <ArrowDownWideNarrow className="w-3.5 h-3.5" />
-            {sortKey === 'size' ? 'Largest first' : 'By path'}
-          </button>
-
-          {filtersActive && (
-            <button onClick={clearFilters} className="flex items-center gap-1 text-xs text-on-surface/60 hover:text-on-surface">
-              <X className="w-3.5 h-3.5" /> Clear filters
-            </button>
+              {(showAllTypes ? types : types.slice(0, 8)).map(([t, list]) => (
+                <button
+                  key={t}
+                  onClick={() => setTypeFilter(t)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap border transition-colors
+                    ${typeFilter === t ? 'border-primary/50 bg-primary/10 text-primary' : 'border-transparent text-on-surface/60 hover:text-on-surface'}`}
+                >
+                  {t} <span className="opacity-60 tabular-nums">{formatBytes(sum(list))}</span>
+                </button>
+              ))}
+              {types.length > 8 && (
+                <button
+                  onClick={() => setShowAllTypes(prev => !prev)}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-medium text-on-surface/60 hover:text-on-surface hover:bg-surface-bright border border-outline/50 transition-colors"
+                >
+                  {showAllTypes ? 'Show less' : `+${types.length - 8} more`}
+                </button>
+              )}
+            </div>
           )}
         </div>
-      </section>
 
-      {/* List */}
-      <section className="bg-surface-container border border-outline rounded-2xl overflow-hidden">
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-outline text-xs text-on-surface/70">
-          <Checkbox
-            checked={allVisible.all}
-            partial={allVisible.some}
-            disabled={allVisible.selectable.length === 0}
-            onClick={() => toggleList(visible)}
-            label="Select all shown items"
-          />
-          <span className="font-medium">
-            {visible.length} shown · {formatBytes(sum(visible))}
-          </span>
-          <button
-            onClick={() => setSelection(visible.filter(i => i.status === 'SAFE' && !i.blocked_by).map(i => i.id), true)}
-            className="ml-auto flex items-center gap-1.5 text-primary hover:underline"
-          >
-            <ShieldCheck className="w-3.5 h-3.5" /> Select safe shown
-          </button>
-          <button onClick={() => setSelection(visible.map(i => i.id), false)} className="hover:text-on-surface">
-            Clear selection
-          </button>
-        </div>
+        {/* Sticky filters: single compact row */}
+        <section className="sticky top-0 z-10 bg-surface-dim/95 backdrop-blur border border-outline rounded-2xl p-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex rounded-lg border border-outline overflow-hidden text-xs shrink-0" role="group" aria-label="Safety level">
+              {(['ALL', 'SAFE', 'REVIEW', 'DANGER'] as SafetyFilter[]).map(s => (
+                <button
+                  key={s}
+                  onClick={() => setSafetyFilter(s)}
+                  className={`px-3 py-1.5 font-medium transition-colors flex items-center gap-1.5
+                    ${safetyFilter === s ? 'bg-on-surface text-surface' : 'bg-surface text-on-surface/70 hover:text-on-surface'}`}
+                >
+                  {s !== 'ALL' && <span className={`w-1.5 h-1.5 rounded-full ${SAFETY_STYLE[s].dot}`} />}
+                  {s === 'ALL' ? 'Any level' : SAFETY_STYLE[s].label}
+                </button>
+              ))}
+            </div>
 
-        {visible.length === 0 && (
-          <div className="p-10 text-center space-y-3">
-            <p className="text-sm text-on-surface/60">
-              {items.length === 0 ? 'Nothing to clean with the tools you turned on.' : 'No items match these filters.'}
-            </p>
-            {items.length === 0 && !scanError && (
-              <button onClick={onChangeScope} className="text-xs text-primary hover:underline">Change folder or tools</button>
-            )}
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-on-surface/40" />
+              <input
+                id="review-search"
+                placeholder="Search path, type or tool"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="w-full bg-surface border border-outline rounded-lg pl-9 pr-3 py-1.5 text-xs outline-none focus:border-primary/60 placeholder:text-on-surface/40"
+              />
+            </div>
+
+            <button
+              onClick={() => setSortKey(k => (k === 'size' ? 'name' : 'size'))}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-outline rounded-lg text-xs text-on-surface/70 hover:text-on-surface bg-surface shrink-0"
+            >
+              <ArrowDownWideNarrow className="w-3.5 h-3.5" />
+              {sortKey === 'size' ? 'Largest first' : 'By path'}
+            </button>
+
             {filtersActive && (
-              <button onClick={clearFilters} className="text-xs text-primary hover:underline">Clear filters</button>
+              <button onClick={clearFilters} className="flex items-center gap-1 text-xs text-on-surface/60 hover:text-on-surface shrink-0">
+                <X className="w-3.5 h-3.5" /> Clear filters
+              </button>
             )}
           </div>
-        )}
+        </section>
 
-        {sections.map(([group, list]) => {
-          if (list.length === 0) return null;
-          const sel = selectionState(list);
-          return (
-            <div key={group}>
-              {groupFilter === 'ALL' && (
-                <div className="flex items-center gap-3 px-4 py-2 bg-surface-bright/60 border-b border-outline text-xs font-semibold text-on-surface/70">
-                  <Checkbox
-                    checked={sel.all}
-                    partial={sel.some}
-                    disabled={sel.selectable.length === 0}
-                    onClick={() => toggleList(list)}
-                    label={`Select all in ${group}`}
+        {/* List */}
+        <section className="bg-surface-container border border-outline rounded-2xl overflow-hidden">
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-outline text-xs text-on-surface/70">
+            <Checkbox
+              checked={allVisible.all}
+              partial={allVisible.some}
+              disabled={allVisible.selectable.length === 0}
+              onClick={() => toggleList(visible)}
+              label="Select all shown items"
+            />
+            <span className="font-medium">
+              {visible.length} shown · {formatBytes(sum(visible))}
+            </span>
+            <button
+              onClick={() => setSelection(visible.filter(i => i.status === 'SAFE' && !i.blocked_by).map(i => i.id), true)}
+              className="ml-auto flex items-center gap-1.5 text-primary hover:underline"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" /> Select safe shown
+            </button>
+            <button onClick={() => setSelection(visible.map(i => i.id), false)} className="hover:text-on-surface">
+              Clear selection
+            </button>
+          </div>
+
+          {visible.length === 0 && (
+            <div className="p-10 text-center space-y-3">
+              <p className="text-sm text-on-surface/60">
+                {items.length === 0 ? 'Nothing to clean with the tools you turned on.' : 'No items match these filters.'}
+              </p>
+              {items.length === 0 && !scanError && (
+                <button onClick={onChangeScope} className="text-xs text-primary hover:underline">Change folder or tools</button>
+              )}
+              {filtersActive && (
+                <button onClick={clearFilters} className="text-xs text-primary hover:underline">Clear filters</button>
+              )}
+            </div>
+          )}
+
+          {sections.map(([group, list]) => {
+            if (list.length === 0) return null;
+            const sel = selectionState(list);
+            const GroupIcon = groupIcon(group);
+            return (
+              <div key={group}>
+                {groupFilter === 'ALL' && (
+                  <div className="flex items-center gap-3 px-4 py-2 bg-surface-bright/60 border-b border-outline text-xs font-semibold text-on-surface/70">
+                    <Checkbox
+                      checked={sel.all}
+                      partial={sel.some}
+                      disabled={sel.selectable.length === 0}
+                      onClick={() => toggleList(list)}
+                      label={`Select all in ${group}`}
+                    />
+                    <span className="flex items-center gap-2">
+                      <GroupIcon className="w-4 h-4 text-on-surface/50" />
+                      <span>{group}</span>
+                    </span>
+                    <span className="ml-auto font-normal font-mono tabular-nums">{list.length} · {formatBytes(sum(list))}</span>
+                  </div>
+                )}
+
+                <ul className="divide-y divide-outline/60">
+                  {list.map(item => {
+                    const selected = selectedIds.has(item.id);
+                    const open = expanded.has(item.id);
+                    const style = SAFETY_STYLE[item.status];
+                    return (
+                      <li
+                        key={item.id}
+                        onClick={() => toggleItem(item)}
+                        className={`grid grid-cols-[auto_auto_minmax(0,1fr)_auto] gap-x-4 px-4 py-3 border-l-2 transition-colors
+                          ${selected ? 'border-l-on-surface/40 bg-surface-bright' : 'border-l-transparent hover:bg-surface-bright/50'}
+                          ${item.blocked_by ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                      >
+                        <div className="pt-0.5">
+                          <Checkbox
+                            checked={selected}
+                            disabled={!!item.blocked_by}
+                            onClick={() => toggleItem(item)}
+                            label={`Select ${item.path}`}
+                          />
+                        </div>
+
+                        <div className="pt-0.5">
+                          <BrandTile item={item} />
+                        </div>
+
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {item.status === 'DANGER' && <AlertTriangle className="w-3.5 h-3.5 text-error shrink-0" />}
+                            {renderPathTitle(item.path)}
+                            <span className="text-[11px] px-1.5 py-0.5 rounded bg-surface-bright text-on-surface/70 whitespace-nowrap">{item.type}</span>
+                            {item.file_type && item.file_type !== item.type && (
+                              <span className="text-[11px] text-on-surface/50 whitespace-nowrap truncate">{item.file_type}</span>
+                            )}
+                          </div>
+                          <div className="text-[11px] font-mono text-on-surface/50 truncate" title={item.path}>
+                            {formatFullPath(item.path)}
+                          </div>
+                          <p className={`text-xs text-on-surface/60 leading-relaxed ${open ? '' : 'line-clamp-2'}`}>
+                            {item.description}
+                          </p>
+                          {item.blocked_by && (
+                            <p className="flex items-center gap-1.5 text-xs font-medium text-error">
+                              <Lock className="w-3 h-3" /> Close {item.blocked_by} to remove this item.
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1.5 min-w-[150px]">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-mono font-medium tabular-nums whitespace-nowrap">{formatBytes(item.size_bytes)}</span>
+                            <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded border ${style.badge}`}>
+                              {style.label}
+                            </span>
+                          </div>
+                          <div className="w-full h-1 rounded-full bg-surface-bright overflow-hidden" aria-hidden>
+                            <div className={`h-full ${style.dot} opacity-70`} style={{ width: `${sizeBarWidth(item.size_bytes, maxSize)}%` }} />
+                          </div>
+                          <div className="flex items-center gap-0.5 text-on-surface/50" onClick={e => e.stopPropagation()}>
+                            <button onClick={() => reveal(item)} title="Show in Finder" className="p-1.5 rounded-md hover:bg-surface-bright hover:text-on-surface">
+                              <FolderSearch className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleIgnore(item)} title="Never show this path again" className="p-1.5 rounded-md hover:bg-surface-bright hover:text-error">
+                              <EyeOff className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setExpanded(prev => { const n = new Set(prev); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); return n; })}
+                              title={open ? 'Less detail' : 'More detail'}
+                              aria-expanded={open}
+                              className="p-1.5 rounded-md hover:bg-surface-bright hover:text-on-surface"
+                            >
+                              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+                            </button>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
+        </section>
+      </div>
+
+      {/* Fixed bottom action bar */}
+      {selectedItems.length > 0 && (
+        <aside
+          aria-label="Selection actions"
+          className="sticky bottom-0 z-20 bg-surface-container border-t border-outline shadow-lg"
+        >
+          <div className="max-w-6xl mx-auto px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div>
+                <span className="text-sm font-semibold text-on-surface">
+                  {selectedItems.length} selected
+                </span>
+                <span className="mx-2 text-on-surface/40">·</span>
+                <span className="text-sm font-mono text-on-surface/80 tabular-nums">
+                  {formatBytes(selectedBytes)}
+                </span>
+              </div>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="text-xs text-on-surface/60 hover:text-on-surface underline transition-colors"
+              >
+                Clear selection
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {needsConfirm && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-error/40 bg-error/10 text-xs">
+                  <ShieldAlert className="w-4 h-4 text-error shrink-0" />
+                  <span className="text-error font-medium hidden sm:inline">
+                    Type DELETE to confirm:
+                  </span>
+                  <input
+                    id="danger-confirm"
+                    value={confirmText}
+                    onChange={(e) => setConfirmText(e.target.value)}
+                    placeholder="DELETE"
+                    className="w-28 bg-surface border border-error/40 rounded-md px-2 py-1 text-xs font-mono outline-none focus:border-error text-error placeholder:text-error/40"
                   />
-                  <span>{group}</span>
-                  <span className="ml-auto font-normal font-mono tabular-nums">{list.length} · {formatBytes(sum(list))}</span>
                 </div>
               )}
 
-              <ul className="divide-y divide-outline/60">
-                {list.map(item => {
-                  const selected = selectedIds.has(item.id);
-                  const open = expanded.has(item.id);
-                  const style = SAFETY_STYLE[item.status];
-                  return (
-                    <li
-                      key={item.id}
-                      onClick={() => toggleItem(item)}
-                      className={`grid grid-cols-[auto_auto_minmax(0,1fr)_auto] gap-x-4 px-4 py-3 border-l-2 transition-colors
-                        ${selected ? 'border-l-primary bg-primary/[0.04]' : 'border-l-transparent hover:bg-surface-bright/50'}
-                        ${item.blocked_by ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-                    >
-                      <div className="pt-0.5">
-                        <Checkbox
-                          checked={selected}
-                          disabled={!!item.blocked_by}
-                          onClick={() => toggleItem(item)}
-                          label={`Select ${item.path}`}
-                        />
-                      </div>
-
-                      <div className="pt-0.5">
-                        <BrandTile item={item} />
-                      </div>
-
-                      <div className="min-w-0 space-y-1">
-                        <div className="flex items-center gap-2 min-w-0">
-                          {item.status === 'DANGER' && <AlertTriangle className="w-3.5 h-3.5 text-error shrink-0" />}
-                          <span className="text-sm font-semibold truncate" title={item.path}>{shortTitle(item.path)}</span>
-                          <span className="text-[11px] px-1.5 py-0.5 rounded bg-surface-bright text-on-surface/70 whitespace-nowrap">{item.type}</span>
-                          {item.file_type && item.file_type !== item.type && (
-                            <span className="text-[11px] text-on-surface/50 whitespace-nowrap truncate">{item.file_type}</span>
-                          )}
-                        </div>
-                        <div className="text-[11px] font-mono text-on-surface/50 truncate" title={item.path}>
-                          {parentPath(item.path)}
-                        </div>
-                        <p className={`text-xs text-on-surface/60 leading-relaxed ${open ? '' : 'line-clamp-1'}`}>
-                          {item.description}
-                        </p>
-                        {item.blocked_by && (
-                          <p className="flex items-center gap-1.5 text-xs font-medium text-error">
-                            <Lock className="w-3 h-3" /> Close {item.blocked_by} to remove this item.
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="flex flex-col items-end gap-1.5 min-w-[150px]">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-mono font-medium tabular-nums whitespace-nowrap">{formatBytes(item.size_bytes)}</span>
-                          <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded border ${style.badge}`}>
-                            {style.label}
-                          </span>
-                        </div>
-                        <div className="w-full h-1 rounded-full bg-surface-bright overflow-hidden" aria-hidden>
-                          <div className={`h-full ${style.dot} opacity-70`} style={{ width: `${Math.max(2, (item.size_bytes / maxSize) * 100)}%` }} />
-                        </div>
-                        <div className="flex items-center gap-0.5 text-on-surface/50" onClick={e => e.stopPropagation()}>
-                          <button onClick={() => reveal(item)} title="Show in Finder" className="p-1.5 rounded-md hover:bg-surface-bright hover:text-on-surface">
-                            <FolderSearch className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => handleIgnore(item)} title="Never show this path again" className="p-1.5 rounded-md hover:bg-surface-bright hover:text-error">
-                            <EyeOff className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setExpanded(prev => { const n = new Set(prev); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); return n; })}
-                            title={open ? 'Less detail' : 'More detail'}
-                            aria-expanded={open}
-                            className="p-1.5 rounded-md hover:bg-surface-bright hover:text-on-surface"
-                          >
-                            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
+              <button
+                onClick={() => onStartCleaning(selectedItems)}
+                disabled={!canStart}
+                className="px-5 py-2.5 bg-on-surface text-surface rounded-lg font-medium text-sm hover:opacity-90 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Remove selected
+              </button>
             </div>
-          );
-        })}
-      </section>
+          </div>
+        </aside>
+      )}
     </div>
   );
 }

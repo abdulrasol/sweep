@@ -107,7 +107,7 @@ export const BRANDS: Record<string, BrandInfo> = {
   vagrant: { Icon: SiVagrant, color: '#1563FF', name: 'Vagrant' },
 };
 
-const GROUP_FALLBACK: Record<string, ComponentType<{ className?: string; style?: CSSProperties }>> = {
+const GROUP_ICONS: Record<string, ComponentType<{ className?: string; style?: CSSProperties }>> = {
   'Projects': FolderCode,
   'Dev Tools': Wrench,
   'AI Tools': Bot,
@@ -115,13 +115,17 @@ const GROUP_FALLBACK: Record<string, ComponentType<{ className?: string; style?:
   'System & Apps': HardDrive,
 };
 
+export function groupIcon(group: string): ComponentType<{ className?: string; style?: CSSProperties }> {
+  return GROUP_ICONS[group] ?? Package;
+}
+
 export function brandFor(item: Pick<CleanupItem, 'file_type' | 'type' | 'group'>): BrandInfo {
   const key = brandKey(item.file_type, item.type);
   if (key && BRANDS[key]) {
     return BRANDS[key];
   }
 
-  const FallbackIcon = GROUP_FALLBACK[item.group] ?? Package;
+  const FallbackIcon = groupIcon(item.group);
   return {
     Icon: FallbackIcon,
     color: 'currentColor',
