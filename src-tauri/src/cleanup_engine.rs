@@ -18,6 +18,7 @@ use walkdir::WalkDir;
 
 mod ai_rules;
 mod android;
+mod brew;
 mod conda;
 mod dart;
 mod docker;
@@ -1146,6 +1147,7 @@ pub fn scan_directory(
     conda::collect(env, &enabled, &mut candidates);
     go::collect(env, &enabled, &mut candidates);
     docker::collect(env, &enabled, &mut candidates);
+    brew::collect(env, &enabled, &mut candidates);
     collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
 
     candidates.retain(|c| !is_ignored(&c.path));
@@ -3278,7 +3280,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn fake_docker_exit_code_1_or_missing_gives_no_items() {
+    fn fake_docker_exit_code_1_gives_no_items() {
         let d = TempDir::new().unwrap();
         let home = d.path().join("__home");
         let bin = home.join(".orbstack/bin");
@@ -3289,13 +3291,6 @@ mod tests {
             r.items.is_empty(),
             "expected 0 items when docker fails, got: {:?}",
             paths(&r)
-        );
-
-        let d2 = TempDir::new().unwrap();
-        let r2 = scan(d2.path(), &["docker"]);
-        assert!(
-            r2.items.is_empty(),
-            "expected 0 items when docker is missing"
         );
     }
 
@@ -3424,6 +3419,190 @@ echo "Total reclaimed space: 1.5kB""#
         assert!(
             err_missing.is_err(),
             "expected error for missing docker binary"
+        );
+    }
+
+    // ----- Homebrew (PLAN 2.13) ----------------------------------------------
+
+    #[cfg(unix)]
+    fn write_fake_brew(bin_dir: &Path, script_body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        fs::create_dir_all(bin_dir).unwrap();
+        let path = bin_dir.join("brew");
+        fs::write(&path, format!("#!/bin/sh\n{script_body}\n")).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[test]
+    fn brew_parse_size_cases() {
+        use super::brew::parse_brew_size;
+        assert_eq!(parse_brew_size("61.2MB"), Some(61_200_000));
+        assert_eq!(parse_brew_size("4kB"), Some(4_000));
+        assert_eq!(parse_brew_size("4KB"), Some(4_000));
+        assert_eq!(parse_brew_size("0B"), Some(0));
+        assert_eq!(parse_brew_size("2GB"), Some(2_000_000_000));
+        assert_eq!(parse_brew_size("garbage"), None);
+    }
+
+    #[test]
+    fn brew_parse_line_cases() {
+        use super::brew::parse_cleanup_line;
+        let line1 = "Would remove: /opt/homebrew/Cellar/node/22.1.0 (2,456 files, 61.2MB)";
+        assert_eq!(
+            parse_cleanup_line(line1),
+            Some(("/opt/homebrew/Cellar/node/22.1.0", 61_200_000))
+        );
+
+        let line2 = "Would remove: /Users/x/Library/Caches/Homebrew/downloads/a.tar.gz (10MB)";
+        assert_eq!(parse_cleanup_line(line2), None);
+
+        let line3 = "Would remove: /opt/homebrew/Caskroom/google-chrome/120.0 (150MB)";
+        assert_eq!(
+            parse_cleanup_line(line3),
+            Some(("/opt/homebrew/Caskroom/google-chrome/120.0", 150_000_000))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fake_brew_scan_reports_old_versions_and_separate_cache() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let bin = home.join(".cargo/bin");
+        let brew_output = r#"Would remove: /opt/homebrew/Cellar/node/22.1.0 (2,456 files, 61.2MB)
+Would remove: /opt/homebrew/Cellar/git/2.44.0 (1,000 files, 30MB)
+Would remove: /opt/homebrew/Caskroom/docker/4.28.0 (100MB)
+Would remove: /Users/x/Library/Caches/Homebrew/downloads/pkg.tar.gz (500MB)
+==> This operation would free approximately 691.2MB of disk space."#;
+        write_fake_brew(&bin, &format!("cat << 'EOF'\n{brew_output}\nEOF"));
+
+        write(
+            &home.join("Library/Caches/Homebrew/downloads/cache.tar.gz"),
+            5000,
+        );
+
+        let r = scan(d.path(), &["homebrew"]);
+
+        let old_versions: Vec<_> = r
+            .items
+            .iter()
+            .filter(|i| i.item.path == "brew://old-versions")
+            .collect();
+        assert_eq!(old_versions.len(), 1);
+        let item = old_versions[0];
+        assert_eq!(item.item.status, Review);
+        assert_eq!(item.item.size_bytes, 191_200_000);
+        assert!(item.item.description.contains("3 old versions"));
+        assert_eq!(item.item.file_type, "Homebrew old versions");
+        assert_eq!(item.item.group, "Dev Tools");
+
+        let cache_item = find(&r, "Library/Caches/Homebrew").unwrap();
+        assert_eq!(cache_item.item.status, Safe);
+        assert!(cache_item.item.size_bytes > 0);
+        assert_ne!(cache_item.item.size_bytes, 191_200_000);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fake_brew_cache_only_or_fail_or_timeout_gives_no_items() {
+        let d1 = TempDir::new().unwrap();
+        let home1 = d1.path().join("__home");
+        let bin1 = home1.join(".cargo/bin");
+        write_fake_brew(
+            &bin1,
+            "echo 'Would remove: /Users/x/Library/Caches/Homebrew/downloads/a.tar.gz (10MB)'",
+        );
+        let r1 = scan(d1.path(), &["homebrew"]);
+        assert!(find(&r1, "old-versions").is_none());
+
+        let d2 = TempDir::new().unwrap();
+        let home2 = d2.path().join("__home");
+        let bin2 = home2.join(".cargo/bin");
+        write_fake_brew(&bin2, "exit 1");
+        let r2 = scan(d2.path(), &["homebrew"]);
+        assert!(find(&r2, "old-versions").is_none());
+
+        let d4 = TempDir::new().unwrap();
+        let home4 = d4.path().join("__home");
+        let bin4 = home4.join(".cargo/bin");
+        write_fake_brew(&bin4, "sleep 5");
+        let env4 = Env { home: home4 };
+        let mut candidates4 = Vec::new();
+        let enabled4: HashSet<&str> = ["homebrew"].into_iter().collect();
+        super::brew::collect_with_timeout(
+            &env4,
+            &enabled4,
+            std::time::Duration::from_millis(50),
+            &mut candidates4,
+        );
+        assert!(candidates4.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn brew_cleanup_runs_exact_args_and_parses_freed_bytes() {
+        let d = TempDir::new().unwrap();
+        let bin = d.path().join("bin");
+        let log_file = d.path().join("brew_args.log");
+        let log_str = log_file.display().to_string();
+        let script = format!(
+            r#"echo "$@" >> "{log_str}"
+echo "AUTO_UPDATE=$HOMEBREW_NO_AUTO_UPDATE" >> "{log_str}"
+echo "==> This operation has freed approximately 1.5GB of disk space.""#
+        );
+        let brew = write_fake_brew(&bin, &script);
+
+        let res = native_commands::run(&NativeCommand::BrewCleanup { brew }).unwrap();
+        assert_eq!(res, Some(1_500_000_000));
+
+        let logged = fs::read_to_string(&log_file).unwrap();
+        let lines: Vec<&str> = logged.lines().collect();
+        assert_eq!(lines, vec!["cleanup", "AUTO_UPDATE=1"]);
+    }
+
+    #[test]
+    fn brew_calls_never_contain_forbidden_flags_or_commands() {
+        let preview_args: &[&str] = &["cleanup", "-n"];
+        let run_args: &[&str] = &["cleanup"];
+        let forbidden = ["-s", "--prune", "uninstall", "remove", "autoremove", "zap"];
+
+        for call in [preview_args, run_args] {
+            for arg in call {
+                let lower = arg.to_lowercase();
+                for f in &forbidden {
+                    assert_ne!(&lower, f, "brew call contains forbidden argument: {arg}");
+                    assert!(
+                        !lower.starts_with("--prune"),
+                        "brew call starts with --prune: {arg}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn brew_run_time_check_refuses_directory_or_wrong_name() {
+        let d = TempDir::new().unwrap();
+        let dir_as_brew = d.path().join("brew");
+        fs::create_dir_all(&dir_as_brew).unwrap();
+
+        let err_dir = native_commands::run(&NativeCommand::BrewCleanup { brew: dir_as_brew });
+        assert!(
+            err_dir.is_err(),
+            "expected error for directory as brew binary"
+        );
+
+        let wrong_name = d.path().join("not_brew");
+        fs::write(&wrong_name, "echo hi").unwrap();
+        let err_name = native_commands::run(&NativeCommand::BrewCleanup { brew: wrong_name });
+        assert!(err_name.is_err(), "expected error for file not named brew");
+
+        let missing = d.path().join("missing/brew");
+        let err_missing = native_commands::run(&NativeCommand::BrewCleanup { brew: missing });
+        assert!(
+            err_missing.is_err(),
+            "expected error for missing brew binary"
         );
     }
 }

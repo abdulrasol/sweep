@@ -486,7 +486,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, on
                             <div className={`h-full ${style.dot} opacity-70`} style={{ width: `${sizeBarWidth(item.size_bytes, maxSize)}%` }} />
                           </div>
                           <div className="flex items-center gap-0.5 text-on-surface/50" onClick={e => e.stopPropagation()}>
-                            {!item.path.startsWith('docker://') && (
+                            {!item.path.includes('://') && (
                               <button onClick={() => reveal(item)} title="Show in Finder" className="p-1.5 rounded-md hover:bg-surface-bright hover:text-on-surface">
                                 <FolderSearch className="w-3.5 h-3.5" />
                               </button>

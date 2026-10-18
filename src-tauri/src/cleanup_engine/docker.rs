@@ -6,9 +6,7 @@
 use super::native_commands::{self, DockerKind, NativeCommand};
 use super::{Action, Candidate, Env, Safety};
 use std::collections::HashSet;
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -52,43 +50,12 @@ pub fn parse_docker_size(s: &str) -> Option<u64> {
 }
 
 fn run_docker_df(docker: &Path, timeout: Duration) -> Option<String> {
-    let mut child = Command::new(docker)
-        .args(["system", "df", "--format", "{{json .}}"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-
-    let start = std::time::Instant::now();
-    let poll_interval = Duration::from_millis(50);
-
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {
-                if start.elapsed() >= timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return None;
-                }
-                std::thread::sleep(poll_interval);
-            }
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    };
-
-    if !status.success() {
-        return None;
-    }
-
-    let mut stdout = child.stdout.take()?;
-    let mut out = String::new();
-    stdout.read_to_string(&mut out).ok()?;
-    Some(out)
+    native_commands::run_with_timeout(
+        docker,
+        &["system", "df", "--format", "{{json .}}"],
+        &[],
+        timeout,
+    )
 }
 
 pub(super) fn collect(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) {

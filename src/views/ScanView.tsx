@@ -45,7 +45,7 @@ const PROJECT_MODULES: ModuleDef[] = [
 const GLOBAL_MODULES: ModuleDef[] = [
   { id: 'xcode', title: 'Xcode', icon: SiXcode, color: '#147EFB', description: 'DerivedData, device support, archives, previews and simulators.', review: true },
   { id: 'cocoapods', title: 'CocoaPods', icon: SiCocoapods, color: '#EE3322', description: 'Pod download cache and spec repos.', review: true },
-  { id: 'homebrew', title: 'Homebrew', icon: SiHomebrew, color: '#FBB040', description: 'Downloaded bottles and formulae.' },
+  { id: 'homebrew', title: 'Homebrew', icon: SiHomebrew, color: '#FBB040', description: 'Downloaded bottles, and old versions of installed formulae and casks.' },
   { id: 'ai_assistants', title: 'AI assistants', icon: Bot, color: '#D97757', description: 'Caches from Claude, ChatGPT, Codex, Cursor, Gemini, Copilot and more. Chat history is marked Danger.', review: true },
   { id: 'ai', title: 'AI / ML models', icon: SiHuggingface, color: '#FFB000', description: 'Hugging Face and PyTorch model caches.', review: true },
   { id: 'editors', title: 'Editor extensions', icon: Monitor, color: '#0EA5E9', description: 'Editor caches, leftover project data and old versions for VS Code, Cursor, Windsurf and JetBrains.' },

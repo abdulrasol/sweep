@@ -6,8 +6,10 @@
 //! pinned through the tool's own setting so it cleans exactly what the scan showed.
 
 use std::ffi::{OsStr, OsString};
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DockerKind {
@@ -48,6 +50,8 @@ pub enum NativeCommand {
     GoCleanModCache { go: PathBuf, modcache: PathBuf },
     /// `docker builder prune -a -f`, `docker container prune -f`, or `docker image prune -a -f`.
     DockerPrune { docker: PathBuf, kind: DockerKind },
+    /// `brew cleanup` with HOMEBREW_NO_AUTO_UPDATE=1, HOMEBREW_NO_ANALYTICS=1, HOMEBREW_NO_ENV_HINTS=1.
+    BrewCleanup { brew: PathBuf },
 }
 
 /// Run the command. Returns the bytes freed when the command measures them itself.
@@ -190,7 +194,90 @@ pub(super) fn run(cmd: &NativeCommand) -> Result<Option<u64>, String> {
             let stdout = String::from_utf8_lossy(&out.stdout);
             Ok(parse_reclaimed_bytes(&stdout))
         }
+        NativeCommand::BrewCleanup { brew } => {
+            if !is_tool(brew, "brew") {
+                return Err("Sweep refused to run an unexpected program as brew.".to_string());
+            }
+            let out = Command::new(brew)
+                .arg("cleanup")
+                .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+                .env("HOMEBREW_NO_ANALYTICS", "1")
+                .env("HOMEBREW_NO_ENV_HINTS", "1")
+                .env("PATH", child_path(brew))
+                .output()
+                .map_err(|e| format!("Could not run brew cleanup: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "brew cleanup failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            Ok(parse_brew_freed_bytes(&stdout))
+        }
     }
+}
+
+pub(super) fn parse_brew_freed_bytes(stdout: &str) -> Option<u64> {
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("==> This operation has freed approximately") {
+            let rest = rest.trim();
+            let token = rest.split_whitespace().next().unwrap_or(rest);
+            let size_part = token.trim_end_matches('.');
+            return super::brew::parse_brew_size(size_part);
+        }
+    }
+    None
+}
+
+pub(super) fn run_with_timeout(
+    program: &Path,
+    args: &[&str],
+    envs: &[(&str, &str)],
+    timeout: Duration,
+) -> Option<String> {
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+
+    let start = std::time::Instant::now();
+    let poll_interval = Duration::from_millis(50);
+
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(poll_interval);
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    };
+
+    if !status.success() {
+        return None;
+    }
+
+    let mut stdout = child.stdout.take()?;
+    let mut out = String::new();
+    stdout.read_to_string(&mut out).ok()?;
+    Some(out)
 }
 
 pub(super) fn parse_reclaimed_bytes(stdout: &str) -> Option<u64> {
