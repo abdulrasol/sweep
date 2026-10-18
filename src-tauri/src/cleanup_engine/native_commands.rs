@@ -9,6 +9,23 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DockerKind {
+    BuilderCache,
+    StoppedContainers,
+    UnusedImages,
+}
+
+impl DockerKind {
+    pub fn args(self) -> &'static [&'static str] {
+        match self {
+            DockerKind::BuilderCache => &["builder", "prune", "-a", "-f"],
+            DockerKind::StoppedContainers => &["container", "prune", "-f"],
+            DockerKind::UnusedImages => &["image", "prune", "-a", "-f"],
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeCommand {
     /// `xcrun <args>`, limited to the `simctl` calls in `simulators::is_allowed_command`.
@@ -29,6 +46,8 @@ pub enum NativeCommand {
     CondaClean { conda: PathBuf, root: PathBuf },
     /// `go clean -modcache` with `GOMODCACHE=<modcache>` (the `~/go/pkg/mod` folder).
     GoCleanModCache { go: PathBuf, modcache: PathBuf },
+    /// `docker builder prune -a -f`, `docker container prune -f`, or `docker image prune -a -f`.
+    DockerPrune { docker: PathBuf, kind: DockerKind },
 }
 
 /// Run the command. Returns the bytes freed when the command measures them itself.
@@ -153,7 +172,37 @@ pub(super) fn run(cmd: &NativeCommand) -> Result<Option<u64>, String> {
             )?;
             Ok(Some(before.saturating_sub(super::disk_usage(modcache))))
         }
+        NativeCommand::DockerPrune { docker, kind } => {
+            if !is_tool(docker, "docker") {
+                return Err("Sweep refused to run an unexpected program as docker.".to_string());
+            }
+            let out = Command::new(docker)
+                .args(kind.args())
+                .env("PATH", child_path(docker))
+                .output()
+                .map_err(|e| format!("Could not run docker prune: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "docker prune failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            Ok(parse_reclaimed_bytes(&stdout))
+        }
     }
+}
+
+pub(super) fn parse_reclaimed_bytes(stdout: &str) -> Option<u64> {
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("Total reclaimed space:") {
+            let size_str = rest.trim();
+            let size_part = size_str.split_whitespace().next().unwrap_or(size_str);
+            return super::docker::parse_docker_size(size_part);
+        }
+    }
+    None
 }
 
 fn check(program: &Path, name: &str, folder: &Path, folder_name: &str) -> Result<(), String> {
@@ -216,9 +265,7 @@ fn is_executable(_path: &Path) -> bool {
 
 /// Folders searched for developer tools: `PATH`, then the places installers use.
 fn search_dirs(home: &Path) -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).collect())
-        .unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = Vec::new();
     for rel in [
         // Rust, Node version managers and standalone installers
         ".cargo/bin",
@@ -237,15 +284,23 @@ fn search_dirs(home: &Path) -> Vec<PathBuf> {
         "sdk/flutter/bin",
         "src/flutter/bin",
         ".puro/envs/stable/flutter/bin",
+        // OrbStack
+        ".orbstack/bin",
     ] {
         dirs.push(home.join(rel));
     }
     if let Some(nvm) = super::node::newest_nvm_bin(home) {
         dirs.push(nvm);
     }
+    if let Some(path) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&path));
+    }
     dirs.push(PathBuf::from("/opt/homebrew/bin"));
     dirs.push(PathBuf::from("/usr/local/go/bin"));
     dirs.push(PathBuf::from("/usr/local/bin"));
+    dirs.push(PathBuf::from(
+        "/Applications/Docker.app/Contents/Resources/bin",
+    ));
     dirs.push(PathBuf::from("/usr/bin"));
     dirs.push(PathBuf::from("/bin"));
     dirs

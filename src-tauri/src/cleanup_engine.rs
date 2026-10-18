@@ -20,6 +20,7 @@ mod ai_rules;
 mod android;
 mod conda;
 mod dart;
+mod docker;
 mod editors;
 mod go;
 mod native_commands;
@@ -1144,6 +1145,7 @@ pub fn scan_directory(
     rust::collect(env, &enabled, &mut candidates);
     conda::collect(env, &enabled, &mut candidates);
     go::collect(env, &enabled, &mut candidates);
+    docker::collect(env, &enabled, &mut candidates);
     collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
 
     candidates.retain(|c| !is_ignored(&c.path));
@@ -3213,5 +3215,215 @@ mod tests {
         let r = scan(d.path(), &["editors"]);
         assert!(find(&r, "JetBrains/IntelliJIdea2024.9").is_some());
         assert!(find(&r, "JetBrains/IntelliJIdea2024.10").is_none());
+    }
+
+    // ----- Docker (PLAN 2.12) ------------------------------------------------
+
+    #[cfg(unix)]
+    fn write_fake_docker(bin_dir: &Path, script_body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        fs::create_dir_all(bin_dir).unwrap();
+        let path = bin_dir.join("docker");
+        fs::write(&path, format!("#!/bin/sh\n{script_body}\n")).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[test]
+    fn docker_parse_size_cases() {
+        use super::docker::parse_docker_size;
+        assert_eq!(parse_docker_size("0B"), Some(0));
+        assert_eq!(parse_docker_size("1.5kB"), Some(1500));
+        assert_eq!(parse_docker_size("12.3MB"), Some(12_300_000));
+        assert_eq!(parse_docker_size("4.2GB"), Some(4_200_000_000));
+        assert_eq!(parse_docker_size("1TB"), Some(1_000_000_000_000));
+        assert_eq!(parse_docker_size("garbage"), None);
+        assert_eq!(parse_docker_size(""), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fake_docker_scan_reports_three_items_and_no_volumes() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let bin = home.join(".orbstack/bin");
+        let json_output = r#"{"Type":"Images","TotalCount":"5","Active":"0","Size":"4.2GB","Reclaimable":"4.2GB (100%)"}
+{"Type":"Containers","TotalCount":"2","Active":"0","Size":"12.3MB","Reclaimable":"12.3MB (100%)"}
+{"Type":"Local Volumes","TotalCount":"3","Active":"0","Size":"50GB","Reclaimable":"50GB (100%)"}
+{"Type":"Build Cache","TotalCount":"10","Active":"0","Size":"1.5kB","Reclaimable":"1.5kB (100%)"}"#;
+        write_fake_docker(&bin, &format!("cat << 'EOF'\n{json_output}\nEOF"));
+
+        let r = scan(d.path(), &["docker"]);
+        assert_eq!(r.items.len(), 3, "expected 3 items: {:?}", paths(&r));
+
+        let cache = find(&r, "build-cache").unwrap();
+        assert_eq!(cache.item.size_bytes, 1500);
+        assert_eq!(cache.item.status, Safe);
+        assert_eq!(cache.item.file_type, "Docker build cache");
+        assert_eq!(cache.item.group, "Dev Tools");
+
+        let containers = find(&r, "containers").unwrap();
+        assert_eq!(containers.item.size_bytes, 12_300_000);
+        assert_eq!(containers.item.status, Review);
+        assert_eq!(containers.item.file_type, "Docker stopped containers");
+
+        let images = find(&r, "images").unwrap();
+        assert_eq!(images.item.size_bytes, 4_200_000_000);
+        assert_eq!(images.item.status, Review);
+        assert_eq!(images.item.file_type, "Docker unused images");
+
+        assert!(r.items.iter().all(|i| !i.item.path.contains("volume")
+            && !i.item.file_type.to_lowercase().contains("volume")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fake_docker_exit_code_1_or_missing_gives_no_items() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let bin = home.join(".orbstack/bin");
+        write_fake_docker(&bin, "exit 1");
+
+        let r = scan(d.path(), &["docker"]);
+        assert!(
+            r.items.is_empty(),
+            "expected 0 items when docker fails, got: {:?}",
+            paths(&r)
+        );
+
+        let d2 = TempDir::new().unwrap();
+        let r2 = scan(d2.path(), &["docker"]);
+        assert!(
+            r2.items.is_empty(),
+            "expected 0 items when docker is missing"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fake_docker_timeout_gives_no_items() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let bin = home.join(".orbstack/bin");
+        write_fake_docker(&bin, "sleep 5");
+
+        let env = Env { home };
+        let mut candidates = Vec::new();
+        let enabled: HashSet<&str> = ["docker"].into_iter().collect();
+        super::docker::collect_with_timeout(
+            &env,
+            &enabled,
+            std::time::Duration::from_millis(50),
+            &mut candidates,
+        );
+        assert!(
+            candidates.is_empty(),
+            "expected timeout to return no candidates"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn docker_prune_runs_exact_commands_and_parses_reclaimed() {
+        use super::native_commands::{DockerKind, NativeCommand};
+        let d = TempDir::new().unwrap();
+        let bin = d.path().join("bin");
+        let log_file = d.path().join("docker_args.log");
+        let log_str = log_file.display().to_string();
+        let script = format!(
+            r#"echo "$@" >> "{log_str}"
+echo "Total reclaimed space: 1.5kB""#
+        );
+        let docker = write_fake_docker(&bin, &script);
+
+        let res1 = native_commands::run(&NativeCommand::DockerPrune {
+            docker: docker.clone(),
+            kind: DockerKind::BuilderCache,
+        })
+        .unwrap();
+        assert_eq!(res1, Some(1500));
+
+        let res2 = native_commands::run(&NativeCommand::DockerPrune {
+            docker: docker.clone(),
+            kind: DockerKind::StoppedContainers,
+        })
+        .unwrap();
+        assert_eq!(res2, Some(1500));
+
+        let res3 = native_commands::run(&NativeCommand::DockerPrune {
+            docker: docker.clone(),
+            kind: DockerKind::UnusedImages,
+        })
+        .unwrap();
+        assert_eq!(res3, Some(1500));
+
+        let logged = fs::read_to_string(&log_file).unwrap();
+        let lines: Vec<&str> = logged.lines().collect();
+        assert_eq!(
+            lines,
+            vec![
+                "builder prune -a -f",
+                "container prune -f",
+                "image prune -a -f",
+            ]
+        );
+    }
+
+    #[test]
+    fn docker_prune_commands_never_contain_forbidden_keywords() {
+        use super::native_commands::DockerKind;
+        let forbidden_words = [
+            "volume", "system", "rm", "rmi", "stop", "kill", "run", "exec",
+        ];
+        for kind in [
+            DockerKind::BuilderCache,
+            DockerKind::StoppedContainers,
+            DockerKind::UnusedImages,
+        ] {
+            let args = kind.args();
+            for arg in args {
+                let lower = arg.to_lowercase();
+                for word in &forbidden_words {
+                    assert_ne!(
+                        &lower, word,
+                        "DockerKind::{:?} contains forbidden keyword {}",
+                        kind, word
+                    );
+                    assert!(
+                        !lower.contains("volume"),
+                        "DockerKind::{:?} contains 'volume'",
+                        kind
+                    );
+                }
+                assert_ne!(*arg, "--volumes");
+            }
+        }
+    }
+
+    #[test]
+    fn docker_run_time_check_refuses_directory_or_missing() {
+        use super::native_commands::{DockerKind, NativeCommand};
+        let d = TempDir::new().unwrap();
+        let dir_as_docker = d.path().join("docker");
+        fs::create_dir_all(&dir_as_docker).unwrap();
+
+        let err_dir = native_commands::run(&NativeCommand::DockerPrune {
+            docker: dir_as_docker,
+            kind: DockerKind::BuilderCache,
+        });
+        assert!(
+            err_dir.is_err(),
+            "expected error for directory as docker binary"
+        );
+
+        let missing_docker = d.path().join("bin/docker");
+        let err_missing = native_commands::run(&NativeCommand::DockerPrune {
+            docker: missing_docker,
+            kind: DockerKind::BuilderCache,
+        });
+        assert!(
+            err_missing.is_err(),
+            "expected error for missing docker binary"
+        );
     }
 }
