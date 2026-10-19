@@ -14,7 +14,7 @@ type ItemState =
   | { kind: 'pending' }
   | { kind: 'working' }
   | { kind: 'done'; freed: number; trashed: boolean }
-  | { kind: 'failed'; error: string }
+  | { kind: 'failed'; error: string; freed: number }
   | { kind: 'skipped' };
 
 type Phase = 'running' | 'stopping' | 'stopped' | 'done';
@@ -57,7 +57,16 @@ export default function ExecutionView({ items, deleteMode, onRunningChange, onSc
           });
           set(i, { kind: 'done', freed: result.bytes, trashed: result.trashed });
         } catch (err) {
-          set(i, { kind: 'failed', error: String(err) });
+          const failure = err as { message?: unknown; freed?: unknown } | null;
+          if (
+            failure &&
+            typeof failure.message === 'string' &&
+            typeof failure.freed === 'number'
+          ) {
+            set(i, { kind: 'failed', error: failure.message, freed: failure.freed });
+          } else {
+            set(i, { kind: 'failed', error: String(err), freed: 0 });
+          }
         }
       }
       setPhase(stopRequested.current ? 'stopped' : 'done');
@@ -73,7 +82,10 @@ export default function ExecutionView({ items, deleteMode, onRunningChange, onSc
   }, [current]);
 
   const freed = states.reduce(
-    (sum, s) => sum + (s.kind === 'done' && !s.trashed ? s.freed : 0),
+    (sum, s) =>
+      sum +
+      (s.kind === 'done' && !s.trashed ? s.freed : 0) +
+      (s.kind === 'failed' ? s.freed : 0),
     0,
   );
   const trashedBytes = states.reduce(
@@ -209,13 +221,21 @@ export default function ExecutionView({ items, deleteMode, onRunningChange, onSc
                     <span className="ml-2 text-xs font-normal text-on-surface/45">{item.file_type || item.type}</span>
                   </div>
                   <div className="text-[11px] font-mono text-on-surface/45 truncate" title={item.path}>{parent(item.path)}</div>
-                  {s.kind === 'failed' && <p className="mt-1 text-xs text-error">{s.error}</p>}
+                  {s.kind === 'failed' && (
+                    <p className="mt-1 text-xs text-error">
+                      {s.freed > 0
+                        ? `Partly removed: ${formatBytes(s.freed)} freed. ${s.error}`
+                        : s.error}
+                    </p>
+                  )}
                 </div>
                 <span className={`text-sm font-mono tabular-nums whitespace-nowrap ${s.kind === 'done' ? '' : 'text-on-surface/50'}`}>
-                  {s.kind === 'skipped' ? 'Skipped' : formatBytes(item.size_bytes)}
+                  {s.kind === 'skipped' ? 'Skipped'
+                    : s.kind === 'failed' && s.freed > 0 ? formatBytes(s.freed)
+                    : formatBytes(item.size_bytes)}
                 </span>
                 <span className="sr-only">
-                  {s.kind === 'done' ? (s.trashed ? 'In Trash' : 'Removed') : s.kind === 'failed' ? 'Failed' : s.kind === 'working' ? 'Removing' : s.kind === 'skipped' ? 'Skipped' : 'Waiting'}
+                  {s.kind === 'done' ? (s.trashed ? 'In Trash' : 'Removed') : s.kind === 'failed' ? (s.freed > 0 ? 'Partly removed' : 'Failed') : s.kind === 'working' ? 'Removing' : s.kind === 'skipped' ? 'Skipped' : 'Waiting'}
                 </span>
               </li>
             );

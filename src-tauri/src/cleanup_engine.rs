@@ -1883,6 +1883,24 @@ fn execute_with(
     }
 }
 
+/// Bytes freed by a removal that failed partway (PLAN 3.7c).
+///
+/// A path that is gone counts as fully removed. A directory that still exists is
+/// measured again and the difference is reported. A file or symlink that still
+/// exists reports 0, and symlinks are never followed. Any error reports 0.
+pub fn freed_after_failure(item: &ScannedItem) -> u64 {
+    if item.action != Action::DeletePath {
+        return 0;
+    }
+    let path = Path::new(&item.item.path);
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => item.item.size_bytes.saturating_sub(disk_usage(path)),
+        Ok(_) => 0,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => item.item.size_bytes,
+        Err(_) => 0,
+    }
+}
+
 pub fn bundle_name(exe_path: &str) -> Option<String> {
     let p = Path::new(exe_path);
     let mut last_app = None;
@@ -4918,5 +4936,101 @@ rm -f "{blob_str}""#
                 vec!["Xcode", "swift-build", "swift"]
             );
         }
+    }
+
+    // ----- Partial removal reporting (PLAN 3.7c) -----------------------------
+
+    #[test]
+    fn freed_after_failure_reports_the_full_size_when_the_path_is_gone() {
+        let d = TempDir::new().unwrap();
+        let dir = d.path().join("gone");
+        write(&dir.join("a.bin"), 5000);
+        let size = disk_usage(&dir);
+        let item = item_with(&dir, "", size);
+        fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(freed_after_failure(&item), size);
+    }
+
+    #[test]
+    fn freed_after_failure_reports_the_difference_when_part_was_removed() {
+        let d = TempDir::new().unwrap();
+        let dir = d.path().join("partial");
+        write(&dir.join("a.bin"), 8192);
+        write(&dir.join("b.bin"), 8192);
+        write(&dir.join("c.bin"), 8192);
+        let original = disk_usage(&dir);
+        let item = item_with(&dir, "", original);
+        fs::remove_file(dir.join("b.bin")).unwrap();
+        let remaining = disk_usage(&dir);
+
+        assert!(remaining > 0);
+        assert_eq!(freed_after_failure(&item), original - remaining);
+        assert!(freed_after_failure(&item) > 0);
+    }
+
+    #[test]
+    fn freed_after_failure_is_zero_when_nothing_was_removed() {
+        let d = TempDir::new().unwrap();
+        let dir = d.path().join("kept");
+        write(&dir.join("a.bin"), 5000);
+        let item = item_with(&dir, "", disk_usage(&dir));
+
+        assert_eq!(freed_after_failure(&item), 0);
+    }
+
+    #[test]
+    fn freed_after_failure_is_zero_when_remaining_is_bigger() {
+        let d = TempDir::new().unwrap();
+        let dir = d.path().join("bigger");
+        write(&dir.join("a.bin"), 5000);
+        let item = item_with(&dir, "", 1);
+
+        assert_eq!(freed_after_failure(&item), 0);
+    }
+
+    #[test]
+    fn freed_after_failure_is_zero_for_a_file_that_still_exists() {
+        let d = TempDir::new().unwrap();
+        let file = d.path().join("file.bin");
+        write(&file, 5000);
+        let item = item_with(&file, "", disk_usage(&file));
+
+        assert_eq!(freed_after_failure(&item), 0);
+    }
+
+    #[test]
+    fn freed_after_failure_is_zero_for_a_command_item() {
+        use super::native_commands::{DockerKind, NativeCommand};
+
+        let d = TempDir::new().unwrap();
+        let dir = d.path().join("cmd");
+        write(&dir.join("a.bin"), 5000);
+        let mut item = item_with(&dir, "", disk_usage(&dir));
+        item.action = Action::Command(NativeCommand::DockerPrune {
+            docker: PathBuf::from("/nonexistent"),
+            kind: DockerKind::BuilderCache,
+        });
+        fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(freed_after_failure(&item), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn freed_after_failure_does_not_follow_a_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let d = TempDir::new().unwrap();
+        let target = d.path().join("target");
+        write(&target.join("a.bin"), 5000);
+        let link = d.path().join("link");
+        symlink(&target, &link).unwrap();
+        let before = disk_usage(&target);
+        let item = item_with(&link, "", before);
+
+        assert_eq!(freed_after_failure(&item), 0);
+        assert!(target.join("a.bin").exists());
+        assert_eq!(disk_usage(&target), before);
     }
 }

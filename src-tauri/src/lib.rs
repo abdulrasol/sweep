@@ -61,6 +61,28 @@ async fn scan_environment(
     Ok(items)
 }
 
+/// Why a removal failed, and how many bytes it freed before failing (PLAN 3.7c).
+#[derive(serde::Serialize, Debug)]
+struct RemovalFailure {
+    message: String,
+    freed: u64,
+}
+
+impl From<String> for RemovalFailure {
+    fn from(message: String) -> Self {
+        Self { message, freed: 0 }
+    }
+}
+
+impl From<&str> for RemovalFailure {
+    fn from(message: &str) -> Self {
+        Self {
+            message: message.to_string(),
+            freed: 0,
+        }
+    }
+}
+
 /// Delete one item from the last scan. Returns the bytes freed and whether the
 /// item went to the Trash.
 #[tauri::command]
@@ -68,7 +90,7 @@ async fn cleanup_item(
     store: State<'_, Mutex<ScanStore>>,
     id: String,
     mode: Option<String>,
-) -> Result<Removed, String> {
+) -> Result<Removed, RemovalFailure> {
     let mode = match mode {
         None => DeleteMode::Permanent,
         Some(value) => DeleteMode::parse(&value).ok_or("Unknown delete mode.")?,
@@ -86,17 +108,22 @@ async fn cleanup_item(
     };
 
     let item_for_task = item.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
+    let result: Result<Removed, RemovalFailure> = tauri::async_runtime::spawn_blocking(move || {
         let running = cleanup_engine::running_process_names();
         if let Some(app) = cleanup_engine::blocking_app(&item_for_task, &running) {
-            return Err(format!("Close {app} first, then try again."));
+            return Err(format!("Close {app} first, then try again.").into());
         }
         let home = dirs::home_dir().ok_or("Cannot find your home folder.")?;
         let protected = cleanup_engine::protected_paths(&home);
-        cleanup_engine::execute(&item_for_task, &roots, &protected, mode)
+        cleanup_engine::execute(&item_for_task, &roots, &protected, mode).map_err(|message| {
+            RemovalFailure {
+                message,
+                freed: cleanup_engine::freed_after_failure(&item_for_task),
+            }
+        })
     })
     .await
-    .map_err(|e| format!("Cleanup failed: {e}"))
+    .map_err(|e| RemovalFailure::from(format!("Cleanup failed: {e}")))
     .and_then(|r| r);
 
     match result {
