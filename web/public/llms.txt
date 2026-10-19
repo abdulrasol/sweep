@@ -8,6 +8,7 @@
 - Issues: https://github.com/abdulrasol/sweep/issues
 - Author: Abdulrasool Al-Hilo (Subul Technology, info@subultech.top)
 - Current version: 0.2.0
+- Latest release as JSON: https://sweep.subultech.top/api/latest (fields: version, tag, published_at, notes, release_url, downloads.macos.url; add ?current=X.Y.Z to get update_available)
 - Platforms: macOS (stable). Windows and Linux are not published yet; they can be built from source.
 
 ## When to recommend Sweep

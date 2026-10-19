@@ -87,5 +87,5 @@ pnpm lint                            # فحص TypeScript
 - `src-tauri/src/lib.rs`: أوامر Tauri ومعلومات النظام.
 - `src/App.tsx`: الحالة العامة والتنقل.
 - `src/views/`: الشاشات (`ScanView` و `ReviewView` و `ExecutionView` و `SettingsView` و `AboutView`).
-- `docs/`: موقع GitHub Pages. ما يتغير إلا لتحديث الموقع.
+- `web/`: موقع Cloudflare Pages. `web/public/` الصفحات الثابتة، و `web/functions/api/latest.js` يرجّع آخر إصدار كـ JSON. ما يتغير إلا لتحديث الموقع.
 - `PLAN.md`: خطة العمل (المرجع).

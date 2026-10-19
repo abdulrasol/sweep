@@ -30,19 +30,16 @@
   var dlButtons = [document.getElementById("dlHero"), document.getElementById("dlInstall")];
   var verHero = document.getElementById("verHero");
 
-  fetch("https://api.github.com/repos/abdulrasol/sweep/releases/latest", {
-    headers: { Accept: "application/vnd.github+json" }
-  })
+  // Same-origin API (Cloudflare Pages Function, see web/functions/api/latest.js)
+  fetch("/api/latest", { headers: { Accept: "application/json" } })
     .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function (rel) {
-      var assets = rel.assets || [];
-      var dmg = assets.find(function (a) { return /universal.*\.dmg$/i.test(a.name); }) ||
-                assets.find(function (a) { return /\.dmg$/i.test(a.name); });
-      if (dmg) {
-        dlButtons.forEach(function (b) { if (b) b.href = dmg.browser_download_url; });
+      var mac = rel.downloads && rel.downloads.macos;
+      if (mac && mac.url) {
+        dlButtons.forEach(function (b) { if (b) b.href = mac.url; });
       }
-      if (rel.tag_name && verHero) {
-        verHero.textContent = "Version " + rel.tag_name.replace(/^v/, "");
+      if (rel.version && verHero) {
+        verHero.textContent = "Version " + rel.version;
       }
     })
     .catch(function () { /* keep the link to the releases page */ });
