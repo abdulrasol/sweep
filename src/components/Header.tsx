@@ -1,4 +1,4 @@
-import { Folder, Moon, Sun, EyeOff } from 'lucide-react';
+import { Folder, Moon, Sun, EyeOff, ArrowUpCircle } from 'lucide-react';
 import { ACCENTS } from '../lib/accents';
 
 interface HeaderProps {
@@ -10,12 +10,16 @@ interface HeaderProps {
   hiddenCount: number;
   onShowHidden: () => void;
   version: string;
+  /** Newer version found by the update check, or null. */
+  updateVersion: string | null;
+  onShowUpdate: () => void;
 }
 
 const tildePath = (path: string) => path.replace(/^\/Users\/[^/]+/, '~');
 
 export default function Header({
   scanPath, accent, setAccent, theme, setTheme, hiddenCount, onShowHidden, version,
+  updateVersion, onShowUpdate,
 }: HeaderProps) {
   return (
     <header className="h-14 border-b border-outline bg-surface-container flex items-center justify-between gap-4 px-5 shrink-0">
@@ -67,7 +71,18 @@ export default function Header({
           {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </button>
 
-        {version && <span className="text-[11px] text-on-surface/40 tabular-nums">v{version}</span>}
+        {updateVersion ? (
+          <button
+            onClick={onShowUpdate}
+            title={`Sweep ${updateVersion} is available`}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/15 text-primary text-xs font-medium hover:bg-primary/25 transition-colors"
+          >
+            <ArrowUpCircle className="w-3.5 h-3.5" />
+            Update to {updateVersion}
+          </button>
+        ) : (
+          version && <span className="text-[11px] text-on-surface/40 tabular-nums">v{version}</span>
+        )}
       </div>
     </header>
   );

@@ -1,15 +1,6 @@
-import { useState } from 'react';
-import { Globe, Mail, Github, RefreshCw } from 'lucide-react';
-import { openExternal } from '../lib/tauri';
-
-const RELEASES = 'https://github.com/abdulrasol/sweep/releases';
-
-type UpdateState =
-  | { kind: 'idle' }
-  | { kind: 'checking' }
-  | { kind: 'current' }
-  | { kind: 'available'; version: string; url: string }
-  | { kind: 'error' };
+import { Globe, Mail, Github } from 'lucide-react';
+import UpdatePanel from '../components/UpdatePanel';
+import type { UpdateState } from '../lib/updates';
 
 const LINKS = [
   { icon: Globe, label: 'Website', value: 'abdulrasol.github.io', href: 'https://abdulrasol.github.io' },
@@ -17,31 +8,13 @@ const LINKS = [
   { icon: Mail, label: 'Email', value: 'abdulrsol97@gmail.com', href: 'mailto:abdulrsol97@gmail.com' },
 ];
 
-export default function AboutView({ version }: { version: string }) {
-  const [update, setUpdate] = useState<UpdateState>({ kind: 'idle' });
+interface AboutViewProps {
+  version: string;
+  update: UpdateState;
+  onCheckForUpdates: () => void;
+}
 
-  const checkForUpdates = async () => {
-    setUpdate({ kind: 'checking' });
-    try {
-      const res = await fetch('https://api.github.com/repos/abdulrasol/sweep/releases/latest');
-      if (!res.ok) throw new Error(String(res.status));
-      const data = await res.json();
-      const latest = String(data.tag_name ?? '').replace(/^v/, '');
-      setUpdate(latest && latest !== version
-        ? { kind: 'available', version: latest, url: data.html_url ?? RELEASES }
-        : { kind: 'current' });
-    } catch {
-      setUpdate({ kind: 'error' });
-    }
-  };
-
-  const status =
-    update.kind === 'checking' ? 'Checking…'
-    : update.kind === 'current' ? 'You have the latest version.'
-    : update.kind === 'available' ? `Version ${update.version} is available.`
-    : update.kind === 'error' ? 'Could not reach GitHub. Check your connection and try again.'
-    : 'Sweep does not update itself. Check here for new releases.';
-
+export default function AboutView({ version, update, onCheckForUpdates }: AboutViewProps) {
   return (
     <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
       <header className="flex items-center gap-4">
@@ -55,27 +28,8 @@ export default function AboutView({ version }: { version: string }) {
         </div>
       </header>
 
-      <section className="bg-surface-container border border-outline rounded-xl px-5 py-4 flex flex-wrap items-center gap-4">
-        <p className={`flex-1 min-w-[220px] text-sm ${update.kind === 'error' ? 'text-error' : 'text-on-surface/70'}`} aria-live="polite">
-          {status}
-        </p>
-        {update.kind === 'available' ? (
-          <button
-            onClick={() => openExternal(update.url)}
-            className="px-4 py-2 rounded-lg bg-on-surface text-surface text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            Download {update.version}
-          </button>
-        ) : (
-          <button
-            onClick={checkForUpdates}
-            disabled={update.kind === 'checking'}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-outline text-sm font-medium hover:bg-surface-bright transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${update.kind === 'checking' ? 'animate-spin' : ''}`} />
-            Check for updates
-          </button>
-        )}
+      <section className="bg-surface-container border border-outline rounded-xl px-5 py-4">
+        <UpdatePanel update={update} onCheck={onCheckForUpdates} />
       </section>
 
       <section className="grid md:grid-cols-[1fr_240px] gap-4">

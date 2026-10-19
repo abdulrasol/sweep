@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { Moon, Sun, Eye } from 'lucide-react';
 import { ACCENTS } from '../lib/accents';
+import UpdatePanel from '../components/UpdatePanel';
+import type { UpdateState } from '../lib/updates';
 
 interface SettingsViewProps {
   accent: string;
@@ -12,6 +14,10 @@ interface SettingsViewProps {
   ignoredPaths: string[];
   onUnhide: (path: string) => void;
   onUnhideAll: () => void;
+  autoUpdateCheck: boolean;
+  onAutoUpdateCheckChange: (on: boolean) => void;
+  update: UpdateState;
+  onCheckForUpdates: () => void;
 }
 
 const tildePath = (path: string) => path.replace(/^\/Users\/[^/]+/, '~');
@@ -31,6 +37,7 @@ function Row({ title, hint, children }: { title: string; hint: string; children:
 export default function SettingsView({
   accent, onAccentChange, theme, onThemeChange,
   deleteMode, onDeleteModeChange, ignoredPaths, onUnhide, onUnhideAll,
+  autoUpdateCheck, onAutoUpdateCheckChange, update, onCheckForUpdates,
 }: SettingsViewProps) {
   return (
     <div className="max-w-3xl mx-auto px-6 py-6 space-y-6">
@@ -101,6 +108,31 @@ export default function SettingsView({
               ))}
             </div>
           </Row>
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <h3 className="text-sm font-semibold">Updates</h3>
+        <div className="bg-surface-container border border-outline rounded-xl divide-y divide-outline">
+          <Row title="Check at launch" hint="Ask sweep.subultech.top for the latest version each time Sweep opens. Nothing about your files is sent.">
+            <div className="flex rounded-lg border border-outline p-0.5 bg-surface-dim" role="radiogroup" aria-label="Check for updates at launch">
+              {([true, false] as const).map(on => (
+                <button
+                  key={String(on)}
+                  role="radio"
+                  aria-checked={autoUpdateCheck === on}
+                  onClick={() => onAutoUpdateCheckChange(on)}
+                  className={`px-3 py-1.5 rounded-md text-sm transition-colors
+                    ${autoUpdateCheck === on ? 'bg-surface-container shadow-sm font-medium' : 'text-on-surface/60 hover:text-on-surface'}`}
+                >
+                  {on ? 'On' : 'Off'}
+                </button>
+              ))}
+            </div>
+          </Row>
+          <div className="px-5 py-4">
+            <UpdatePanel update={update} onCheck={onCheckForUpdates} />
+          </div>
         </div>
       </section>
 

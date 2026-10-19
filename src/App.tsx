@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ListChecks } from 'lucide-react';
 import Sidebar from './components/Sidebar';
@@ -10,6 +10,7 @@ import SettingsView from './views/SettingsView';
 import AboutView from './views/AboutView';
 import { invoke } from './lib/tauri';
 import { accentById } from './lib/accents';
+import { checkForUpdate, type UpdateState } from './lib/updates';
 
 const readJson = <T,>(key: string, fallback: T): T => {
   try {
@@ -38,6 +39,15 @@ export default function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
     localStorage.getItem('sweep_theme') === 'light' ? 'light' : 'dark',
   );
+  const [autoUpdateCheck, setAutoUpdateCheck] = useState(() => {
+    try {
+      return localStorage.getItem('sweep_auto_update_check') !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const [update, setUpdate] = useState<UpdateState>({ kind: 'idle' });
+  const launchCheckDone = useRef(false);
   const [deleteMode, setDeleteMode] = useState<'trash' | 'permanent'>(() => {
     try {
       return localStorage.getItem('sweep_delete_mode') === 'permanent' ? 'permanent' : 'trash';
@@ -62,9 +72,28 @@ export default function App() {
     localStorage.setItem('sweep_accent', accent);
     localStorage.setItem('sweep_theme', theme);
     localStorage.setItem('sweep_delete_mode', deleteMode);
+    localStorage.setItem('sweep_auto_update_check', autoUpdateCheck ? 'on' : 'off');
     localStorage.removeItem('sweep_auto_purge');
     localStorage.removeItem('sweep_verbose');
-  }, [scanPath, selectedModules, ignoredPaths, accent, theme, deleteMode]);
+  }, [scanPath, selectedModules, ignoredPaths, accent, theme, deleteMode, autoUpdateCheck]);
+
+  const runUpdateCheck = useCallback(async (quiet: boolean) => {
+    if (!version) return;
+    if (!quiet) setUpdate({ kind: 'checking' });
+    try {
+      setUpdate(await checkForUpdate(version));
+    } catch {
+      // A failed check at launch stays silent; only a manual check reports it.
+      setUpdate(quiet ? { kind: 'idle' } : { kind: 'error' });
+    }
+  }, [version]);
+
+  // Check once at launch, as soon as the app version is known.
+  useEffect(() => {
+    if (!version || !autoUpdateCheck || launchCheckDone.current) return;
+    launchCheckDone.current = true;
+    runUpdateCheck(true);
+  }, [version, autoUpdateCheck, runUpdateCheck]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -148,10 +177,14 @@ export default function App() {
             ignoredPaths={ignoredPaths}
             onUnhide={(path) => setIgnoredPaths(prev => prev.filter(p => p !== path))}
             onUnhideAll={() => setIgnoredPaths([])}
+            autoUpdateCheck={autoUpdateCheck}
+            onAutoUpdateCheckChange={setAutoUpdateCheck}
+            update={update}
+            onCheckForUpdates={() => runUpdateCheck(false)}
           />
         );
       case 'about':
-        return <AboutView version={version} />;
+        return <AboutView version={version} update={update} onCheckForUpdates={() => runUpdateCheck(false)} />;
     }
   };
 
@@ -168,6 +201,8 @@ export default function App() {
           hiddenCount={ignoredPaths.length}
           onShowHidden={() => navigate('settings')}
           version={version}
+          updateVersion={update.kind === 'available' ? update.version : null}
+          onShowUpdate={() => navigate('settings')}
         />
         <main className="flex-1 overflow-hidden bg-surface-dim relative">
           <AnimatePresence mode="wait">
