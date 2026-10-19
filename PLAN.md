@@ -62,6 +62,7 @@
 - [x] 2.15a ملفات النظام: السجلات ونسخ الآيفون والسلة (متوسط) (أُنجزت 2026-10-18، السجلات متحققة على الماك والنسخ والسلة بالاختبارات فقط)
 - [x] 2.15b ملفات التثبيت القديمة بـ Downloads (متوسط) (أُنجزت 2026-10-18، بالاختبارات فقط لأن مجلد Downloads بالجهاز ما فيه ملفات قديمة)
 - [ ] 2.16 تنظيف أدوات الذكاء الاصطناعي (عالي) — الكود جاهز ومختبَر، بانتظار فحص تجريبي على الماك
+- [x] 2.17 مدراء حزم إضافية: Maven و Swift Package Manager و Deno و Terraform (سهل) (أُنجزت 2026-10-19، بالاختبارات فقط)
 
 **المرحلة 3: معمارية المحرك**
 
@@ -677,6 +678,12 @@ for e in WalkDir::new(p).follow_links(false) {
 **المصادر:** [مسارات جلسات أدوات CLI](https://allaboutcoding.ghinda.com/where-ai-coding-clis-store-session-logs/) · [Antigravity](https://jazzyalex.github.io/agent-sessions/guides/antigravity-cli-local-history.html) · [Claude VM bundle](https://lilting.ch/en/articles/claude-code-cowork-vm-macos) · [Cursor](https://vibe-replay.com/blog/cursor-local-storage/) · [Copilot CLI](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference) · [Cline](https://agent-safehouse.dev/docs/agent-investigations/cline) · [ChatGPT (BleachBit)](https://github.com/bleachbit/bleachbit/pull/2384) · [Gemini CLI](https://geminicli.com/docs/cli/session-management/)
 
 ---
+
+### 2.17 مدراء حزم إضافية
+
+**المشكلة:** أدوات شائعة بدون أي قاعدة تنظيف.
+**الحل (منفّذ):** وحدة `java` (Maven: `~/.m2/repository`، Review)، وحدة `devops` (Terraform: `~/.terraform.d/plugin-cache`، Safe)، وتحت Xcode مجلدا Swift Package Manager (الكاش Safe والبيانات Review)، وتحت Node كاش Deno (Safe). كل قاعدة تنقفل لو الأداة شغالة.
+**غير مغطّى:** Podman وColima وOrbStack (تحتاج أوامرها الرسمية)، وتطبيقات العمل مثل Slack وZoom وTeams وPostman وFigma (مهمة 2.18).
 
 ## المرحلة 3: معمارية المحرك
 
