@@ -8,9 +8,9 @@
 
 ## A High-Performance Technical Utility for Modern Developers
 
-Built with ❤️ using **Google Gemini (Antigravity)**
+Built with ❤️ and a team of AI pair programmers: **Google Gemini**, **Claude** and **DeepSeek**.
 
-![Built with Gemini 3.5 Flash](https://img.shields.io/badge/Built%20with-Gemini%203.5%20Flash-blue?style=for-the-badge&logo=google-gemini) ![Powered by Tauri v2](https://img.shields.io/badge/Powered%20by-Tauri%20v2-FF8239?style=for-the-badge&logo=tauri) ![Language - Rust / React](https://img.shields.io/badge/Language-Rust%20%2F%20React-000000?style=for-the-badge&logo=rust)
+![Built with Gemini](https://img.shields.io/badge/Built%20with-Gemini-4285F4?style=for-the-badge&logo=googlegemini&logoColor=white) ![Built with Claude](https://img.shields.io/badge/Built%20with-Claude-D97757?style=for-the-badge&logo=claude&logoColor=white) ![Built with DeepSeek](https://img.shields.io/badge/Built%20with-DeepSeek-4D6BFE?style=for-the-badge) ![Powered by Tauri v2](https://img.shields.io/badge/Powered%20by-Tauri%20v2-FF8239?style=for-the-badge&logo=tauri) ![Language - Rust / React](https://img.shields.io/badge/Language-Rust%20%2F%20React-000000?style=for-the-badge&logo=rust)
 
 ---
 
@@ -20,29 +20,41 @@ Yesterday at my company, a classmate asked me to help him run a Flutter applicat
 
 We both assumed his iPhone was full. He checked, and it had plenty of storage. I checked my Mac, and to my horror, I only had **1 GB of free space left**. My machine was suffocating under years of hidden developer artifacts.
 
-I asked **Google Gemini** (running on the cloud free model) for help. It pointed me to deep system paths like `~/Library/Developer/Xcode/DerivedData`. That moment changed everything. I realized that every developer faces this "stealth storage eater" problem.
+I asked **Google Gemini** for help. It pointed me to deep system paths like `~/Library/Developer/Xcode/DerivedData`. That moment changed everything. I realized that every developer faces this "stealth storage eater" problem.
 
 I decided to create a tool that isn't just a simple script, but a professional, high-end command center to reclaim our workspaces. I called it **Sweep**.
 
-*Note: This entire project was pair-programmed with Google Gemini. When the cloud limits hit, we switched to Gemini 1.5 Flash to keep the momentum going!*
+*Sweep started as a pair-programming session with Google Gemini, and grew with **Claude** and **DeepSeek** joining in, especially on the safety work that makes a tool which deletes files trustworthy.*
 
 ---
 
 ## 🚀 Features
 
 - **Multi-Environment Deep Cleaning**:
-  - **Mobile**: Flutter, Android (AVD/Gradle), Xcode (DerivedData).
-  - **Web**: Node.js (node_modules), PNPM stores, Next.js caches.
-  - **Systems**: Rust (Cargo target), Python (Conda/Pip), PHP, .NET, C++, Go.
-  - **Specialized**: Unity, Unreal Engine, Adobe Media Caches, Docker.
-- **Global Runtime Status**: A real-time sidebar dashboard showing:
-  - OS Identity & Version.
-  - CPU Utilization.
-  - RAM Pressure.
-  - Available Disk Space.
-- **Smart Target Scope**: Select your root development directory and let Sweep find the garbage.
-- **Glassmorphism UI**: A premium, dark-mode interface built for modern aesthetics.
-- **Safety First**: Review every single file before the final purge.
+  - **Mobile**: Flutter / Dart, Android (Gradle, AVD), Xcode (DerivedData, DeviceSupport, Archives, Simulators).
+  - **Web**: Node.js (`node_modules`), pnpm / npm / Yarn caches, Next.js caches, test browsers.
+  - **Systems**: Rust (`target`, old toolchains), Python / Conda, Go, PHP, .NET, C++.
+  - **Tools**: Homebrew, Docker, editor workspace storage, old app and extension versions.
+  - **AI**: Local model caches and AI tool histories.
+- **Safety levels on every item**: `SAFE` (regenerates on its own), `REVIEW` (regenerates but costs time or a download), `DANGER` (needs typed confirmation).
+- **Never touches your code**: folders inside a project that contain files tracked by git are skipped, and a fixed blocklist protects system and personal folders.
+- **Official tools first**: where a tool has its own cleanup command (`xcrun simctl`, `brew cleanup`, `docker prune`, ...), Sweep uses it instead of deleting by hand.
+- **Trash or permanent**: choose whether removed items go to the Trash or are deleted permanently.
+- **Real sizes**: sizes reflect the space actually freed on disk (hardlinks and clones are not double-counted).
+- **Blocks deletion while the related app is running** (e.g. Xcode, Android Studio).
+- **Review before purge**: nothing is deleted without your confirmation.
+
+---
+
+## 📥 Install (macOS)
+
+Download the latest `.dmg` from the [Releases](https://github.com/abdulrasol/sweep/releases) page, open it and drag **Sweep** into **Applications**.
+
+Releases are **signed with an Apple Developer ID and notarized by Apple**, so Sweep opens normally with no Gatekeeper warning and no terminal commands.
+
+### Full Disk Access (recommended)
+
+Some caches live in folders that macOS protects. To let Sweep scan them, open **System Settings → Privacy & Security → Full Disk Access** and enable **Sweep**. Sweep shows a shortcut to this pane when access is missing; without it, those folders are simply skipped.
 
 ---
 
@@ -56,11 +68,11 @@ I decided to create a tool that isn't just a simple script, but a professional, 
 
 ---
 
-## 📦 Installation & Setup
+## 🧑‍💻 Building from Source
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18+)
+- [Node.js](https://nodejs.org/) (v18+) and [pnpm](https://pnpm.io/)
 - [Rust](https://www.rust-lang.org/) (v1.75+)
 - **System Dependencies**:
   - **Mac**: Xcode Command Line Tools.
@@ -86,35 +98,29 @@ pnpm install
 cargo tauri dev
 ```
 
----
-
-## 🏗 Building for Production
-
-Sweep is designed to be cross-platform. To build a standalone executable for your current OS:
+### 4. Build for Production
 
 ```bash
 cargo tauri build
 ```
 
-### Artifact Locations
-- **macOS**: `src-tauri/target/release/bundle/dmg/`
-- **Windows**: `src-tauri/target/release/bundle/msi/`
-- **Linux**: `src-tauri/target/release/bundle/deb/`
+Artifacts:
 
-> **Note for macOS Users:** If you download a pre-compiled Release and macOS warns you that the app is "damaged and can't be opened" or from an "unidentified developer", you can bypass Gatekeeper by moving the app to your Applications folder and running the following command in your terminal:
-> ```bash
-> xattr -cr /Applications/Sweep.app
-> ```
+- **macOS**: `target/release/bundle/dmg/`
+- **Windows**: `target/release/bundle/msi/`
+- **Linux**: `target/release/bundle/deb/`
+
+> Local builds are not notarized. If you build Sweep yourself, macOS may ask you to confirm the first launch (right-click → **Open**).
 
 ---
 
 ## 📜 License & Credits
 
-Built with **Vide Coding** techniques and **Google Gemini**.
+Developed by **Abdulrasool Al-Hilo**, pair-programmed with **Google Gemini**, **Claude** (Anthropic) and **DeepSeek**.
 
-This project is a testament to the power of Agentic AI. Developed by **Antigravity** in collaboration with a developer who just wanted their 1GB of space back.
+This project is a testament to the power of Agentic AI, built by a developer who just wanted their 1GB of space back.
 
-**Disclaimer**: Sweep performs permanent deletions. Always review your targets before initiating a Global Scan.
+**Disclaimer**: Sweep can delete files permanently. Always review your targets before cleaning.
 
 ---
 <div align="center">
