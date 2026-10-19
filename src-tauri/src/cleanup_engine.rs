@@ -460,6 +460,22 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         Safe,
         &["Simulator"],
     ),
+    g(
+        "xcode",
+        "Swift Package Cache",
+        "Library/Caches/org.swift.swiftpm",
+        "Build Cache",
+        Safe,
+        &["Xcode", "swift-build", "swift"],
+    ),
+    g(
+        "xcode",
+        "Swift Package Manager Data",
+        "Library/org.swift.swiftpm",
+        "Package Cache",
+        Review,
+        &["Xcode", "swift-build", "swift"],
+    ),
     GlobalRule {
         module: "xcode",
         label: "Xcode Archive",
@@ -561,6 +577,25 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         "Build Cache",
         Safe,
         &["go"],
+    ),
+    GlobalRule {
+        module: "java",
+        label: "Maven Repository",
+        home_rel: ".m2/repository",
+        category: "Package Cache",
+        safety: Review,
+        blocked_if_running: &["mvn", "java"],
+        split_children: false,
+        note: "Maven local repository. Dependencies are downloaded again on the next build.",
+        min_bytes: 1,
+    },
+    g(
+        "devops",
+        "Terraform Plugin Cache",
+        ".terraform.d/plugin-cache",
+        "Package Cache",
+        Safe,
+        &["terraform"],
     ),
     g(
         "android",
@@ -677,6 +712,14 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         "Download Cache",
         Safe,
         &[],
+    ),
+    g(
+        "node",
+        "Deno Cache",
+        "Library/Caches/deno",
+        "Package Cache",
+        Safe,
+        &["deno"],
     ),
     GlobalRule {
         module: "node",
@@ -822,6 +865,25 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         Safe,
         &["go"],
     ),
+    GlobalRule {
+        module: "java",
+        label: "Maven Repository",
+        home_rel: ".m2/repository",
+        category: "Package Cache",
+        safety: Review,
+        blocked_if_running: &["mvn", "java"],
+        split_children: false,
+        note: "Maven local repository. Dependencies are downloaded again on the next build.",
+        min_bytes: 1,
+    },
+    g(
+        "devops",
+        "Terraform Plugin Cache",
+        ".terraform.d/plugin-cache",
+        "Package Cache",
+        Safe,
+        &["terraform"],
+    ),
     g(
         "android",
         "Android AVD Images",
@@ -872,6 +934,14 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         "Media Cache",
         Review,
         &[],
+    ),
+    g(
+        "node",
+        "Deno Cache",
+        "AppData/Local/deno",
+        "Package Cache",
+        Safe,
+        &["deno"],
     ),
     g(
         "os_system",
@@ -957,6 +1027,25 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         Safe,
         &["go"],
     ),
+    GlobalRule {
+        module: "java",
+        label: "Maven Repository",
+        home_rel: ".m2/repository",
+        category: "Package Cache",
+        safety: Review,
+        blocked_if_running: &["mvn", "java"],
+        split_children: false,
+        note: "Maven local repository. Dependencies are downloaded again on the next build.",
+        min_bytes: 1,
+    },
+    g(
+        "devops",
+        "Terraform Plugin Cache",
+        ".terraform.d/plugin-cache",
+        "Package Cache",
+        Safe,
+        &["terraform"],
+    ),
     g(
         "android",
         "Android AVD Images",
@@ -1040,6 +1129,14 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         "Download Cache",
         Safe,
         &[],
+    ),
+    g(
+        "node",
+        "Deno Cache",
+        ".cache/deno",
+        "Package Cache",
+        Safe,
+        &["deno"],
     ),
     GlobalRule {
         module: "node",
@@ -1227,6 +1324,8 @@ fn module_group(module: &str) -> &'static str {
         "editors" => "Editors",
         "system" => "System",
         "os_system" | "social" | "adobe" => "System & Apps",
+        "java" => "Java",
+        "devops" => "DevOps",
         _ => "Dev Tools",
     }
 }
@@ -4672,5 +4771,152 @@ rm -f "{blob_str}""#
         });
         assert!(err_name.is_err());
         assert!(!log_file.exists());
+    }
+
+    // ----- Global caches: Maven, Swift Package Manager, Deno, Terraform (PLAN 2.17) -----
+
+    fn global_candidates(base: &Path, modules: &[&str]) -> Vec<Candidate> {
+        let env = Env {
+            home: base.join("__home"),
+        };
+        fs::create_dir_all(&env.home).unwrap();
+        let enabled: HashSet<&str> = modules.iter().copied().collect();
+        let mut out = Vec::new();
+        collect_global(&env, &enabled, &mut out);
+        out
+    }
+
+    fn global_candidate<'a>(cands: &'a [Candidate], suffix: &str) -> &'a Candidate {
+        cands
+            .iter()
+            .find(|c| c.path.ends_with(suffix))
+            .unwrap_or_else(|| panic!("no candidate ending with {suffix}"))
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn maven_swift_deno_terraform_rules_found() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join(".m2/repository/org/apache/x/a.jar"), 5000);
+        write(&home.join("Library/Caches/org.swift.swiftpm/objects/x"), 5000);
+        write(&home.join("Library/org.swift.swiftpm/registries/x"), 5000);
+        write(&home.join("Library/Caches/deno/deps/x"), 5000);
+        write(&home.join(".terraform.d/plugin-cache/registry/x"), 5000);
+
+        let r = scan(d.path(), &["java", "xcode", "node", "devops"]);
+        assert_eq!(find(&r, ".m2/repository").unwrap().item.status, Review);
+        assert_eq!(
+            find(&r, "Library/Caches/org.swift.swiftpm")
+                .unwrap()
+                .item
+                .status,
+            Safe
+        );
+        assert_eq!(
+            find(&r, "Library/org.swift.swiftpm").unwrap().item.status,
+            Review
+        );
+        assert_eq!(
+            find(&r, "Library/Caches/deno").unwrap().item.status,
+            Safe
+        );
+        assert_eq!(
+            find(&r, ".terraform.d/plugin-cache").unwrap().item.status,
+            Safe
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn maven_deno_terraform_rules_found() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        #[cfg(target_os = "windows")]
+        let deno = "AppData/Local/deno";
+        #[cfg(not(target_os = "windows"))]
+        let deno = ".cache/deno";
+
+        write(&home.join(".m2/repository/org/apache/x/a.jar"), 5000);
+        write(&home.join(deno).join("deps/x"), 5000);
+        write(&home.join(".terraform.d/plugin-cache/registry/x"), 5000);
+
+        let r = scan(d.path(), &["java", "node", "devops"]);
+        assert_eq!(find(&r, ".m2/repository").unwrap().item.status, Review);
+        assert_eq!(find(&r, deno).unwrap().item.status, Safe);
+        assert_eq!(
+            find(&r, ".terraform.d/plugin-cache").unwrap().item.status,
+            Safe
+        );
+    }
+
+    #[test]
+    fn new_global_rules_are_absent_when_folders_missing() {
+        let d = TempDir::new().unwrap();
+        #[cfg(target_os = "macos")]
+        let deno = "Library/Caches/deno";
+        #[cfg(target_os = "windows")]
+        let deno = "AppData/Local/deno";
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let deno = ".cache/deno";
+
+        let r = scan(d.path(), &["java", "node", "devops"]);
+        assert!(find(&r, ".m2/repository").is_none());
+        assert!(find(&r, deno).is_none());
+        assert!(find(&r, ".terraform.d/plugin-cache").is_none());
+
+        #[cfg(target_os = "macos")]
+        {
+            let r = scan(d.path(), &["xcode"]);
+            assert!(find(&r, "Library/Caches/org.swift.swiftpm").is_none());
+            assert!(find(&r, "Library/org.swift.swiftpm").is_none());
+        }
+    }
+
+    #[test]
+    fn new_global_rules_block_their_tools() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        #[cfg(target_os = "macos")]
+        let deno = "Library/Caches/deno";
+        #[cfg(target_os = "windows")]
+        let deno = "AppData/Local/deno";
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let deno = ".cache/deno";
+
+        write(&home.join(".m2/repository/org/apache/x/a.jar"), 10);
+        write(&home.join(deno).join("deps/x"), 10);
+        write(&home.join(".terraform.d/plugin-cache/registry/x"), 10);
+
+        let cands = global_candidates(d.path(), &["java", "node", "devops"]);
+        assert_eq!(
+            global_candidate(&cands, ".m2/repository").blocked_if_running,
+            vec!["mvn", "java"]
+        );
+        assert_eq!(
+            global_candidate(&cands, deno).blocked_if_running,
+            vec!["deno"]
+        );
+        assert_eq!(
+            global_candidate(&cands, ".terraform.d/plugin-cache").blocked_if_running,
+            vec!["terraform"]
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn swift_package_rules_block_xcode_and_swift() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join("Library/Caches/org.swift.swiftpm/objects/x"), 10);
+        write(&home.join("Library/org.swift.swiftpm/registries/x"), 10);
+
+        let cands = global_candidates(d.path(), &["xcode"]);
+        for suffix in ["Library/Caches/org.swift.swiftpm", "Library/org.swift.swiftpm"] {
+            assert_eq!(
+                global_candidate(&cands, suffix).blocked_if_running,
+                vec!["Xcode", "swift-build", "swift"]
+            );
+        }
     }
 }

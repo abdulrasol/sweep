@@ -3,7 +3,7 @@ import { FolderOpen, HardDrive, Monitor, Bot, ScanSearch } from 'lucide-react';
 import {
   SiFlutter, SiNodedotjs, SiRust, SiPython, SiDocker, SiHomebrew, SiPhp, SiKotlin, SiGo,
   SiCplusplus, SiUnity, SiDotnet, SiRubyonrails, SiUnrealengine, SiHuggingface, SiVagrant,
-  SiDiscord, SiXcode, SiCocoapods,
+  SiDiscord, SiXcode, SiCocoapods, SiOpenjdk, SiTerraform,
 } from 'react-icons/si';
 import { invoke } from '../lib/tauri';
 
@@ -29,7 +29,7 @@ interface ModuleDef {
 // review: true when the module can produce Review or Danger items (they are never selected automatically). Modules with only Safe items have no badge.
 const PROJECT_MODULES: ModuleDef[] = [
   { id: 'flutter', title: 'Flutter / Dart', icon: SiFlutter, color: '#02569B', description: 'build, .dart_tool and Pods in Flutter projects, plus the pub cache through dart.', review: true },
-  { id: 'node', title: 'Node / pnpm', icon: SiNodedotjs, color: '#339933', description: 'node_modules and build output, npm, pnpm, Yarn and Bun caches, test browsers and old Node versions.', review: true },
+  { id: 'node', title: 'Node / pnpm', icon: SiNodedotjs, color: '#339933', description: 'node_modules and build output, npm, pnpm, Yarn, Bun and Deno caches, test browsers and old Node versions.', review: true },
   { id: 'rust', title: 'Rust / Cargo', icon: SiRust, color: '#CE422B', description: 'target folders, Cargo registry caches and toolchains other than your default.', review: true },
   { id: 'rust_incremental', title: 'Rust incremental only', icon: SiRust, color: '#CE422B', description: 'For projects you still work on: only target/*/incremental, so compiled dependencies stay.' },
   { id: 'android', title: 'Android / Kotlin', icon: SiKotlin, color: '#7F52FF', description: 'Gradle builds and caches, unused SDK system images, old build-tools and old Android Studio versions.', review: true },
@@ -44,8 +44,10 @@ const PROJECT_MODULES: ModuleDef[] = [
 ];
 
 const GLOBAL_MODULES: ModuleDef[] = [
-  { id: 'xcode', title: 'Xcode', icon: SiXcode, color: '#147EFB', description: 'DerivedData, device support, archives, previews and simulators.', review: true },
+  { id: 'xcode', title: 'Xcode', icon: SiXcode, color: '#147EFB', description: 'DerivedData, device support, archives, previews, simulators and Swift packages.', review: true },
   { id: 'cocoapods', title: 'CocoaPods', icon: SiCocoapods, color: '#EE3322', description: 'Pod download cache and spec repos.', review: true },
+  { id: 'java', title: 'Java / Maven', icon: SiOpenjdk, color: '#ED8B00', description: 'Maven local repository.', review: true },
+  { id: 'devops', title: 'Terraform', icon: SiTerraform, color: '#844FBA', description: 'Terraform plugin cache.' },
   { id: 'homebrew', title: 'Homebrew', icon: SiHomebrew, color: '#FBB040', description: 'Downloaded bottles, and old versions of installed formulae and casks.', review: true },
   { id: 'ai_assistants', title: 'AI assistants', icon: Bot, color: '#D97757', description: 'Caches from Claude, ChatGPT, Codex, Cursor, Gemini, Copilot and more. Chat history is marked Danger.', review: true },
   { id: 'ai', title: 'AI / ML models', icon: SiHuggingface, color: '#FFB000', description: 'Hugging Face, Ollama and LM Studio models, one line per model, plus PyTorch caches. Login tokens and keys are never touched.', review: true },
