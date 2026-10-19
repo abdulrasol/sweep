@@ -4,7 +4,8 @@ mod cleanup_engine;
 use cleanup_engine::{CleanupItem, DeleteMode, Env, Removed, ScannedItem};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use sysinfo::{Disks, System};
 use tauri::State;
@@ -18,6 +19,10 @@ struct ScanStore {
     /// Bumped on every scan, so a failed cleanup never puts an item back into a newer scan.
     generation: u64,
 }
+
+/// Flag for the scan that is running now, so the UI can cancel it (PLAN 3.5).
+#[derive(Default)]
+struct ScanControl(Mutex<Arc<AtomicBool>>);
 
 struct SysState {
     sys: Mutex<System>,
@@ -33,6 +38,8 @@ fn lock_err<T>(_: T) -> String {
 #[tauri::command]
 async fn scan_environment(
     store: State<'_, Mutex<ScanStore>>,
+    control: State<'_, ScanControl>,
+    on_event: tauri::ipc::Channel<cleanup_engine::ScanProgress>,
     path: String,
     modules: Vec<String>,
     ignored_paths: Vec<String>,
@@ -41,13 +48,32 @@ async fn scan_environment(
     if path.is_empty() || !base.is_dir() {
         return Err("Choose an existing folder to scan.".to_string());
     }
+
+    let cancelled = Arc::new(AtomicBool::new(false));
+    {
+        let mut guard = control.0.lock().map_err(lock_err)?;
+        *guard = cancelled.clone();
+    }
+
     let result = tauri::async_runtime::spawn_blocking(move || {
         let env = Env::from_system();
         let running = cleanup_engine::running_process_names();
-        cleanup_engine::scan_directory(&base, &modules, &ignored_paths, &env, &running)
+        let flag = &cancelled;
+        let progress = |event| {
+            let _ = on_event.send(event);
+        };
+        let hooks = cleanup_engine::ScanHooks {
+            cancelled: &|| flag.load(Ordering::Relaxed),
+            progress: &progress,
+        };
+        cleanup_engine::scan_directory_with(&base, &modules, &ignored_paths, &env, &running, &hooks)
     })
     .await
     .map_err(|e| format!("Scan failed: {e}"))?;
+
+    let Some(result) = result else {
+        return Err("Scan cancelled.".to_string());
+    };
 
     let items: Vec<CleanupItem> = result.items.iter().map(|s| s.item.clone()).collect();
     let mut guard = store.lock().map_err(lock_err)?;
@@ -59,6 +85,14 @@ async fn scan_environment(
     guard.allowed_roots = result.allowed_roots;
     guard.generation += 1;
     Ok(items)
+}
+
+/// Cancel the scan that is running now. Does not touch any files.
+#[tauri::command]
+fn cancel_scan(control: State<'_, ScanControl>) {
+    if let Ok(flag) = control.0.lock() {
+        flag.store(true, Ordering::Relaxed);
+    }
 }
 
 /// Why a removal failed, and how many bytes it freed before failing (PLAN 3.7c).
@@ -318,12 +352,14 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(ScanStore::default()))
+        .manage(ScanControl::default())
         .manage(SysState {
             sys: Mutex::new(sys),
             disk_cache: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             scan_environment,
+            cancel_scan,
             cleanup_item,
             select_directory,
             open_external,

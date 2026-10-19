@@ -14,7 +14,9 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use walkdir::WalkDir;
 
 mod ai_models;
@@ -132,6 +134,24 @@ pub struct ScanResult {
     pub items: Vec<ScannedItem>,
     /// Roots that deletions are allowed under (the scan root and the user's home).
     pub allowed_roots: Vec<PathBuf>,
+}
+
+/// Progress reported while a scan runs (PLAN 3.5).
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ScanProgress {
+    /// A new stage started.
+    Phase { label: String },
+    /// The project walker is looking at this directory.
+    Path { path: String },
+    /// Sizes are being measured; `done` of `total` items, `bytes` so far.
+    Measuring { done: usize, total: usize, bytes: u64 },
+}
+
+/// Cancellation and progress callbacks for `scan_directory_with`.
+pub struct ScanHooks<'a> {
+    pub cancelled: &'a (dyn Fn() -> bool + Sync),
+    pub progress: &'a (dyn Fn(ScanProgress) + Sync),
 }
 
 // ---------------------------------------------------------------------------
@@ -1230,6 +1250,11 @@ struct Candidate {
     catch_all: bool,
 }
 
+/// Scan without progress reporting or cancellation.
+///
+/// The Tauri command uses `scan_directory_with`; this stays as the plain API
+/// (and is what the engine tests compare against).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn scan_directory(
     base_path: &Path,
     enabled_modules: &[String],
@@ -1237,36 +1262,145 @@ pub fn scan_directory(
     env: &Env,
     running: &HashSet<String>,
 ) -> ScanResult {
+    let cancelled = || false;
+    let progress = |_: ScanProgress| {};
+    let hooks = ScanHooks {
+        cancelled: &cancelled,
+        progress: &progress,
+    };
+    scan_directory_with(
+        base_path,
+        enabled_modules,
+        ignored_paths,
+        env,
+        running,
+        &hooks,
+    )
+    .unwrap_or_default()
+}
+
+/// Scan with progress reporting and cancellation. Returns `None` when cancelled.
+pub fn scan_directory_with(
+    base_path: &Path,
+    enabled_modules: &[String],
+    ignored_paths: &[String],
+    env: &Env,
+    running: &HashSet<String>,
+    hooks: &ScanHooks<'_>,
+) -> Option<ScanResult> {
     let enabled: HashSet<&str> = enabled_modules.iter().map(String::as_str).collect();
     let ignored: Vec<PathBuf> = ignored_paths.iter().map(PathBuf::from).collect();
     let is_ignored = |p: &Path| ignored.iter().any(|i| p.starts_with(i));
 
     let mut candidates = Vec::new();
+    (hooks.progress)(ScanProgress::Phase {
+        label: "Checking installed tools".to_string(),
+    });
+    if (hooks.cancelled)() {
+        return None;
+    }
     collect_global(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     versions::collect(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     editors::collect(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     simulators::collect(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     dart::collect(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     android::collect(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     node::collect(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     rust::collect(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     conda::collect(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     go::collect(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     docker::collect(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     brew::collect(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     ai_models::collect(env, &enabled, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
     system::collect(env, &enabled, &mut candidates);
-    collect_projects(base_path, &enabled, &is_ignored, &mut candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
+
+    (hooks.progress)(ScanProgress::Phase {
+        label: "Searching your projects".to_string(),
+    });
+    collect_projects(base_path, &enabled, &is_ignored, &mut candidates, hooks);
+    if (hooks.cancelled)() {
+        return None;
+    }
 
     candidates.retain(|c| !is_ignored(&c.path));
     let candidates = drop_git_tracked(candidates);
     let candidates = drop_shadowed_catch_alls(candidates);
     let candidates = drop_nested(candidates);
+    if (hooks.cancelled)() {
+        return None;
+    }
 
+    (hooks.progress)(ScanProgress::Phase {
+        label: "Measuring sizes".to_string(),
+    });
+    let total = candidates.len();
+    let done = AtomicUsize::new(0);
+    let bytes = AtomicU64::new(0);
+    let last_report = Mutex::new(Instant::now());
+    let cancelled = hooks.cancelled;
     let mut items: Vec<ScannedItem> = candidates
         .into_par_iter()
         .filter_map(|mut c| {
-            let size = c.known_size.unwrap_or_else(|| disk_usage(&c.path));
+            if cancelled() {
+                return None;
+            }
+            let done_now = done.fetch_add(1, Ordering::Relaxed) + 1;
+            let size = c
+                .known_size
+                .unwrap_or_else(|| disk_usage_cancellable(&c.path, cancelled));
+            let bytes_now = bytes.fetch_add(size, Ordering::Relaxed) + size;
+            if let Ok(mut last) = last_report.lock() {
+                if last.elapsed() >= Duration::from_millis(100) {
+                    *last = Instant::now();
+                    (hooks.progress)(ScanProgress::Measuring {
+                        done: done_now,
+                        total,
+                        bytes: bytes_now,
+                    });
+                }
+            }
             if size == 0 {
                 return None;
             }
@@ -1305,16 +1439,25 @@ pub fn scan_directory(
         })
         .collect();
 
+    (hooks.progress)(ScanProgress::Measuring {
+        done: total,
+        total,
+        bytes: bytes.load(Ordering::Relaxed),
+    });
+    if (hooks.cancelled)() {
+        return None;
+    }
+
     items.sort_by_key(|i| std::cmp::Reverse(i.item.size_bytes));
 
     let mut allowed_roots = vec![env.home.clone()];
     if let Ok(root) = fs::canonicalize(base_path) {
         allowed_roots.push(root);
     }
-    ScanResult {
+    Some(ScanResult {
         items,
         allowed_roots,
-    }
+    })
 }
 
 /// Filter bucket for a global rule's module.
@@ -1420,6 +1563,7 @@ fn collect_projects(
     enabled: &HashSet<&str>,
     is_ignored: &dyn Fn(&Path) -> bool,
     out: &mut Vec<Candidate>,
+    hooks: &ScanHooks<'_>,
 ) {
     let rules: Vec<&ProjectRule> = PROJECT_RULES
         .iter()
@@ -1444,7 +1588,18 @@ fn collect_projects(
             !SKIP_DIRS.contains(&name.as_ref()) && !is_ignored(e.path())
         });
 
+    let mut last_path: Option<Instant> = None;
     for entry in walker.flatten() {
+        if (hooks.cancelled)() {
+            break;
+        }
+        let report = last_path.is_none_or(|t| t.elapsed() >= Duration::from_millis(100));
+        if report {
+            (hooks.progress)(ScanProgress::Path {
+                path: entry.path().to_string_lossy().into_owned(),
+            });
+            last_path = Some(Instant::now());
+        }
         let dir = entry.path();
         let Ok(rd) = fs::read_dir(dir) else { continue };
         let names: HashSet<OsString> = rd.flatten().map(|e| e.file_name()).collect();
@@ -1627,13 +1782,24 @@ fn stable_id(s: &str) -> String {
 /// Counts allocated blocks, never follows symlinks, and counts a hard-linked file
 /// only when every link to it lives inside `path`.
 pub fn disk_usage(path: &Path) -> u64 {
+    disk_usage_cancellable(path, &|| false)
+}
+
+/// `disk_usage` that stops at a partial sum when the flag turns true.
+/// The flag is checked every 256 entries.
+fn disk_usage_cancellable(path: &Path, cancelled: &(dyn Fn() -> bool + Sync)) -> u64 {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
         let mut total = 0u64;
         // (dev, ino) -> (nlink, links seen, bytes)
         let mut linked: HashMap<(u64, u64), (u64, u64, u64)> = HashMap::new();
+        let mut entries = 0usize;
         for entry in WalkDir::new(path).follow_links(false).into_iter().flatten() {
+            entries += 1;
+            if entries.is_multiple_of(256) && cancelled() {
+                break;
+            }
             let Ok(m) = entry.metadata() else { continue };
             if m.file_type().is_symlink() {
                 continue;
@@ -1657,14 +1823,19 @@ pub fn disk_usage(path: &Path) -> u64 {
     }
     #[cfg(not(unix))]
     {
-        WalkDir::new(path)
-            .follow_links(false)
-            .into_iter()
-            .flatten()
-            .filter_map(|e| e.metadata().ok())
-            .filter(|m| m.is_file())
-            .map(|m| m.len())
-            .sum()
+        let mut total = 0u64;
+        let mut entries = 0usize;
+        for entry in WalkDir::new(path).follow_links(false).into_iter().flatten() {
+            entries += 1;
+            if entries.is_multiple_of(256) && cancelled() {
+                break;
+            }
+            let Ok(m) = entry.metadata() else { continue };
+            if m.is_file() {
+                total += m.len();
+            }
+        }
+        total
     }
 }
 
@@ -5032,5 +5203,136 @@ rm -f "{blob_str}""#
         assert_eq!(freed_after_failure(&item), 0);
         assert!(target.join("a.bin").exists());
         assert_eq!(disk_usage(&target), before);
+    }
+
+    // ----- Scan progress and cancellation (PLAN 3.5) -------------------------
+
+    fn scan_with_hooks(
+        base: &Path,
+        modules: &[&str],
+        cancelled: &(dyn Fn() -> bool + Sync),
+        progress: &(dyn Fn(ScanProgress) + Sync),
+    ) -> Option<ScanResult> {
+        let env = Env {
+            home: base.join("__home"),
+        };
+        fs::create_dir_all(&env.home).unwrap();
+        let modules: Vec<String> = modules.iter().map(|s| s.to_string()).collect();
+        let hooks = ScanHooks {
+            cancelled,
+            progress,
+        };
+        scan_directory_with(base, &modules, &[], &env, &HashSet::new(), &hooks)
+    }
+
+    #[test]
+    fn scan_with_hooks_matches_scan_directory() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("pubspec.yaml"), 10);
+        write(&p.join("build/out.bin"), 5000);
+        write(&p.join(".dart_tool/x"), 5000);
+
+        let expected = scan(d.path(), &["flutter"]);
+        let cancelled = || false;
+        let progress = |_: ScanProgress| {};
+        let actual = scan_with_hooks(d.path(), &["flutter"], &cancelled, &progress).unwrap();
+
+        assert_eq!(paths(&expected), paths(&actual));
+    }
+
+    #[test]
+    fn scan_with_hooks_cancelled_from_start_is_none() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("pubspec.yaml"), 10);
+        write(&p.join("build/out.bin"), 5000);
+
+        let cancelled = || true;
+        let progress = |_: ScanProgress| {};
+        assert!(scan_with_hooks(d.path(), &["flutter"], &cancelled, &progress).is_none());
+    }
+
+    #[test]
+    fn scan_with_hooks_stops_after_a_path_event() {
+        use std::sync::atomic::AtomicBool;
+
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("pubspec.yaml"), 10);
+        write(&p.join("build/out.bin"), 5000);
+
+        let flag = AtomicBool::new(false);
+        let cancelled = || flag.load(Ordering::Relaxed);
+        let progress = |event: ScanProgress| {
+            if matches!(event, ScanProgress::Path { .. } | ScanProgress::Measuring { .. }) {
+                flag.store(true, Ordering::Relaxed);
+            }
+        };
+        assert!(scan_with_hooks(d.path(), &["flutter"], &cancelled, &progress).is_none());
+    }
+
+    #[test]
+    fn scan_with_hooks_reports_phases_then_the_final_measuring() {
+        let d = TempDir::new().unwrap();
+        let p = d.path().join("app");
+        write(&p.join("pubspec.yaml"), 10);
+        write(&p.join("build/out.bin"), 5000);
+
+        let events = Mutex::new(Vec::new());
+        let cancelled = || false;
+        let progress = |event: ScanProgress| {
+            events.lock().unwrap().push(event);
+        };
+        let result = scan_with_hooks(d.path(), &["flutter"], &cancelled, &progress);
+        assert!(result.is_some());
+
+        let events = events.into_inner().unwrap();
+        let phases: Vec<&str> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanProgress::Phase { label } => Some(label.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            phases,
+            vec![
+                "Checking installed tools",
+                "Searching your projects",
+                "Measuring sizes"
+            ]
+        );
+        assert!(matches!(events.first(), Some(ScanProgress::Phase { .. })));
+
+        let first_measuring = events
+            .iter()
+            .position(|e| matches!(e, ScanProgress::Measuring { .. }));
+        assert!(first_measuring.is_some());
+        let first_measuring = first_measuring.unwrap();
+        assert!(events
+            .iter()
+            .skip(first_measuring)
+            .all(|e| matches!(e, ScanProgress::Measuring { .. })));
+
+        match events.last() {
+            Some(ScanProgress::Measuring { done, total, .. }) => assert_eq!(done, total),
+            other => panic!("last event is not Measuring: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn disk_usage_cancellable_stops_early_and_matches_disk_usage() {
+        let d = TempDir::new().unwrap();
+        let dir = d.path().join("many");
+        for i in 0..400 {
+            write(&dir.join(format!("f{i}.bin")), 1);
+        }
+
+        let full = disk_usage(&dir);
+        let partial = disk_usage_cancellable(&dir, &|| true);
+        assert!(partial > 0);
+        assert!(partial < full, "partial {partial} is not below full {full}");
+        assert_eq!(disk_usage_cancellable(&dir, &|| false), full);
     }
 }

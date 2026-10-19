@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
+import { Channel } from '@tauri-apps/api/core';
 import {
   Search, Check, AlertTriangle, RefreshCw, EyeOff, Lock, FolderSearch,
-  ChevronDown, ShieldCheck, ShieldAlert, ArrowDownWideNarrow, X,
+  ChevronDown, ShieldCheck, ShieldAlert, ArrowDownWideNarrow, X, Square,
 } from 'lucide-react';
 import { invoke, formatBytes } from '../lib/tauri';
 import { BrandTile, groupIcon } from '../lib/brands';
@@ -20,6 +21,11 @@ interface ReviewViewProps {
 type SafetyFilter = 'ALL' | SafetyLevel;
 type SortKey = 'size' | 'name';
 
+type ScanProgressEvent =
+  | { kind: 'phase'; label: string }
+  | { kind: 'path'; path: string }
+  | { kind: 'measuring'; done: number; total: number; bytes: number };
+
 const GROUP_ORDER = ['Projects', 'Dev Tools', 'AI Tools', 'Editors', 'System & Apps'];
 
 const SAFETY_STYLE: Record<SafetyLevel, { badge: string; dot: string; label: string }> = {
@@ -37,6 +43,8 @@ const formatFullPath = (path: string, max = 70) => {
   const keep = Math.floor((max - 1) / 2);
   return `${home.slice(0, keep)}…${home.slice(-keep)}`;
 };
+
+const tildePath = (path: string) => path.replace(/^\/Users\/[^/]+/, '~');
 
 /** Displays previous path segment (muted) and last segment (semibold). */
 function renderPathTitle(path: string) {
@@ -105,6 +113,11 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
   const [confirmText, setConfirmText] = useState('');
   const [scanNonce, setScanNonce] = useState(0);
 
+  const [phaseLabel, setPhaseLabel] = useState('Checking installed tools');
+  const [currentPath, setCurrentPath] = useState('');
+  const [measuring, setMeasuring] = useState<{ done: number; total: number; bytes: number } | null>(null);
+  const [stopping, setStopping] = useState(false);
+
   const [query, setQuery] = useState('');
   const [groupFilter, setGroupFilter] = useState<string>('ALL');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
@@ -115,17 +128,32 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
   useEffect(() => {
     const run = async () => {
       setLoading(true);
+      setStopping(false);
+      setPhaseLabel('Checking installed tools');
+      setCurrentPath('');
+      setMeasuring(null);
       try {
+        const channel = new Channel<ScanProgressEvent>();
+        channel.onmessage = (event) => {
+          if (event.kind === 'phase') setPhaseLabel(event.label);
+          else if (event.kind === 'path') setCurrentPath(event.path);
+          else if (event.kind === 'measuring') setMeasuring(event);
+        };
         const data = await invoke<CleanupItem[]>('scan_environment', {
           path: scanPath,
           modules: selectedModules,
           ignoredPaths,
+          onEvent: channel,
         });
         setItems(data);
         // Pre-select only SAFE items that are not blocked by a running app.
         setSelectedIds(new Set(data.filter(i => i.status === 'SAFE' && !i.blocked_by).map(i => i.id)));
         setScanError(null);
       } catch (err) {
+        if (String(err) === 'Scan cancelled.') {
+          onChangeScope();
+          return;
+        }
         console.error('Scan failed:', err);
         setScanError(String(err));
       } finally {
@@ -229,14 +257,52 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
     setQuery('');
   };
 
+  const stopScan = () => {
+    setStopping(true);
+    invoke('cancel_scan').catch(err => console.error(err));
+  };
+
   // ----- Render ---------------------------------------------------------------
 
   if (loading) {
+    const progress = measuring && measuring.total > 0
+      ? Math.max((measuring.done / measuring.total) * 100, 1.5)
+      : 0;
     return (
       <div className="flex flex-col items-center justify-center h-full space-y-4">
         <RefreshCw className="w-8 h-8 text-primary animate-spin opacity-60" />
-        <p className="text-sm text-on-surface/60">Scanning with {selectedModules.length} {selectedModules.length === 1 ? 'tool' : 'tools'}…</p>
-        <p className="text-xs font-mono text-on-surface/40 max-w-md truncate">{scanPath}</p>
+        <p className="text-sm text-on-surface/60">{phaseLabel}…</p>
+        <p className="text-xs font-mono text-on-surface/40 max-w-md truncate" title={currentPath || scanPath}>
+          {tildePath(currentPath || scanPath)}
+        </p>
+        {measuring && (
+          <div className="w-full max-w-md space-y-1">
+            <div
+              className="h-2 rounded-full bg-surface-bright overflow-hidden"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={measuring.total}
+              aria-valuenow={measuring.done}
+            >
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-on-surface/55 tabular-nums">
+              <span>{measuring.done} of {measuring.total}</span>
+              <span>{formatBytes(measuring.bytes)}</span>
+            </div>
+          </div>
+        )}
+        <button
+          onClick={stopScan}
+          disabled={stopping}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-outline text-sm font-medium hover:bg-surface-bright transition-colors disabled:opacity-50"
+        >
+          <Square className="w-3.5 h-3.5" />
+          {stopping ? 'Stopping…' : 'Stop'}
+        </button>
       </div>
     );
   }
