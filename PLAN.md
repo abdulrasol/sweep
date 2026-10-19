@@ -84,7 +84,9 @@
 - [ ] 4.4 عرض مرئي للقرص (متوسط)
 - [ ] 4.5 سجل المساحة المحررة (متوسط)
 - [ ] 4.6 واجهة عربية و RTL (متوسط)
-- [ ] 4.7 التوقيع والـ notarization والـ README (عالي)
+- [x] 4.7 التوقيع والـ notarization والـ README (عالي) (أُنجزت 2026-10-19) — الإصدار v0.2.0 موقّع بـ Developer ID وموثّق من Apple وينفتح بدون تحذير؛ الـ CI صار يستخدم pnpm 10 مع frozen lockfile وينشر الإصدار مباشرة بدل Draft؛ README جديد بجدول كل الأهداف ومستويات الأمان
+- [x] 4.8 موقع Sweep على Cloudflare Pages مع `/api/latest` (عالي) (أُنجزت 2026-10-19) — الموقع انتقل من `docs/` لـ `web/`، مع llms.txt وبيانات منظّمة و sitemap، ويشتغل على sweep.subultech.top
+- [ ] 4.9 التحقق من التحديثات داخل التطبيق (متوسط) — الكود جاهز و tsc ينجح، بانتظار إصدار بعد v0.2.0 للتحقق إن v0.2.0 تعرض «Update to X»
 
 ## تفاصيل المهام
 
@@ -903,3 +905,34 @@ blocked_if_running = ["Xcode"]
 **الملفات:** `.github/workflows/release.yml, README.md`
 
 **متى نعتبرها خلصت:** التطبيق ينفتح على جهاز ثاني بدون أي تحذير.
+
+### 4.8 موقع Sweep على Cloudflare Pages مع `/api/latest`
+
+**الأولوية:** عالي · **الوقت التقريبي:** نص يوم
+
+**ليش:** الموقع القديم كان على GitHub Pages ويعرض ميزات قديمة، وجزء الأهداف كان يُبنى بـ JavaScript فما تشوفه محركات البحث ووكلاء الذكاء الاصطناعي. ونحتاج مصدر ثابت لآخر إصدار يقرأ منه الموقع والتطبيق.
+
+**الحل:** - صفحة واحدة بالإنكليزي داخل `web/public/`: كيف يشتغل، كتالوج كل الأهداف بمستوى أمانها (مكتوب بالـ HTML نفسه)، الأمان، التثبيت، الأسئلة.
+- `llms.txt` و JSON-LD (SoftwareApplication و FAQPage) و `robots.txt` و `sitemap.xml`.
+- `web/functions/api/latest.js`: يرجّع آخر إصدار منشور كـ JSON بكاش 10 دقائق، و `?current=X.Y.Z` يضيف `update_available`.
+- إعدادات Cloudflare: Root directory `web`، Build output `public`، بدون أمر بناء.
+
+**الملفات:** `web/`, `CLAUDE.md`
+
+**متى نعتبرها خلصت:** https://sweep.subultech.top يفتح، و `/api/latest` يرجّع آخر إصدار منشور، وزر التحميل يجيب الـ `.dmg`.
+
+### 4.9 التحقق من التحديثات داخل التطبيق
+
+**الأولوية:** متوسط · **الوقت التقريبي:** ساعتين
+
+**ليش:** الفحص القديم بزر About كان يقرأ GitHub مباشرة ويقارن النص بـ `!==`، فعرض نسخة أقدم (0.0.5) كأنها تحديث.
+
+**الحل:** - `src/lib/updates.ts` يسأل `https://sweep.subultech.top/api/latest?current=…` ويقارن الأرقام بنفسه، فما يعرض نسخة أقدم أبداً.
+- فحص صامت مرة وحدة عند التشغيل (يتطفى من Settings › Updates)، وزر فحص يدوي بـ Settings و About.
+- زر «Update to X» بالشريط العلوي لما يكون أكو إصدار أحدث، وزر Download يفتح الـ `.dmg` بالمتصفح. التطبيق ما ينزّل ولا ينصّب شي بنفسه.
+- الـ CSP يسمح بـ `sweep.subultech.top` بس، وانحذف `api.github.com`.
+
+**الملفات:** `src/lib/updates.ts, src/components/UpdatePanel.tsx, src/App.tsx, src/components/Header.tsx, src/views/SettingsView.tsx, src/views/AboutView.tsx, src-tauri/tauri.conf.json`
+
+**متى نعتبرها خلصت:** نسخة أقدم من آخر إصدار منشور تعرض «Update to X» عند التشغيل، والنسخة الأحدث تقول «You have the latest version».
+
