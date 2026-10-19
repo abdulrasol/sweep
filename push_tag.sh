@@ -45,7 +45,7 @@ read -r USER_MSG
 
 # ── 6. Build final commit message ─────────────────────────────────────────────
 if [[ -z "$USER_MSG" ]]; then
-  COMMIT_MSG="New release ${NEW_TAG}"
+  COMMIT_MSG="${NEW_TAG}"
 else
   COMMIT_MSG="$USER_MSG"
 fi
