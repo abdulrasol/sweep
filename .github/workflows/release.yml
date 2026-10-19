@@ -33,9 +33,10 @@ jobs:
           node-version: lts/*
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v4
         with:
-          version: 8
+          # Must read pnpm-lock.yaml v9; pnpm 8 ignores it and resolves newer packages
+          version: 10
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -49,7 +50,8 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
 
       - name: Install frontend dependencies
-        run: pnpm install
+        # Fail instead of silently resolving versions that differ from the lockfile
+        run: pnpm install --frozen-lockfile
 
       - uses: tauri-apps/tauri-action@v0
         env:
