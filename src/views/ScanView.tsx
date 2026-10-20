@@ -3,7 +3,7 @@ import { FolderOpen, HardDrive, Monitor, Bot, ScanSearch } from 'lucide-react';
 import {
   SiFlutter, SiNodedotjs, SiRust, SiPython, SiDocker, SiHomebrew, SiPhp, SiKotlin, SiGo,
   SiCplusplus, SiUnity, SiDotnet, SiRubyonrails, SiUnrealengine, SiHuggingface, SiVagrant,
-  SiDiscord, SiXcode, SiCocoapods, SiOpenjdk, SiTerraform,
+  SiDiscord, SiXcode, SiCocoapods, SiOpenjdk, SiTerraform, SiSlack,
 } from 'react-icons/si';
 import { invoke } from '../lib/tauri';
 
@@ -55,6 +55,7 @@ const GLOBAL_MODULES: ModuleDef[] = [
   { id: 'python', title: 'Python / Conda', icon: SiPython, color: '#3776AB', description: 'Conda environments (marked Danger), the Conda package cache, pip/uv/Poetry caches, and Python cache folders in projects.', review: true },
   { id: 'os', title: 'Vagrant', icon: SiVagrant, color: '#1563FF', description: 'Vagrant boxes, marked Danger.', review: true },
   { id: 'social', title: 'Chat and media apps', icon: SiDiscord, color: '#5865F2', description: 'Telegram media, Discord and Spotify caches.', review: true },
+  { id: 'work_apps', title: 'Work apps', icon: SiSlack, color: '#4A154B', description: 'Caches from Slack, Zoom, Teams, Notion, Postman and Figma. Your sign-ins and messages are never touched.' },
   { id: 'adobe', title: 'Adobe', icon: HardDrive, color: '#FF3D00', description: 'After Effects and Premiere media cache.', review: true },
   { id: 'os_system', title: 'App caches', icon: HardDrive, color: 'currentColor', description: 'Each folder in ~/Library/Caches over 10 MB, listed for review.', review: true },
   { id: 'system', title: 'System', icon: HardDrive, color: 'currentColor', description: 'System logs, iPhone backups, the Trash and old installers in Downloads. Backups are marked Danger. Downloads files are always Review.', review: true },

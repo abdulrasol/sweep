@@ -700,6 +700,183 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         Safe,
         &["Spotify"],
     ),
+    // Work apps (PLAN 2.18): caches only, never cookies, storage or sign-in data.
+    g(
+        "work_apps",
+        "Slack Cache",
+        "Library/Application Support/Slack/Cache",
+        "App Cache",
+        Safe,
+        &["Slack"],
+    ),
+    g(
+        "work_apps",
+        "Slack Code Cache",
+        "Library/Application Support/Slack/Code Cache",
+        "App Cache",
+        Safe,
+        &["Slack"],
+    ),
+    g(
+        "work_apps",
+        "Slack GPU Cache",
+        "Library/Application Support/Slack/GPUCache",
+        "App Cache",
+        Safe,
+        &["Slack"],
+    ),
+    g(
+        "work_apps",
+        "Slack Service Worker Cache",
+        "Library/Application Support/Slack/Service Worker/CacheStorage",
+        "App Cache",
+        Safe,
+        &["Slack"],
+    ),
+    g(
+        "work_apps",
+        "Slack App Cache",
+        "Library/Caches/com.tinyspeck.slackmacgap",
+        "App Cache",
+        Safe,
+        &["Slack"],
+    ),
+    g(
+        "work_apps",
+        "Zoom Cache",
+        "Library/Caches/us.zoom.xos",
+        "App Cache",
+        Safe,
+        &["zoom.us"],
+    ),
+    g(
+        "work_apps",
+        "Teams Cache",
+        "Library/Application Support/Microsoft/Teams/Cache",
+        "App Cache",
+        Safe,
+        &["Microsoft Teams", "MSTeams"],
+    ),
+    g(
+        "work_apps",
+        "Teams Code Cache",
+        "Library/Application Support/Microsoft/Teams/Code Cache",
+        "App Cache",
+        Safe,
+        &["Microsoft Teams", "MSTeams"],
+    ),
+    g(
+        "work_apps",
+        "Teams GPU Cache",
+        "Library/Application Support/Microsoft/Teams/GPUCache",
+        "App Cache",
+        Safe,
+        &["Microsoft Teams", "MSTeams"],
+    ),
+    g(
+        "work_apps",
+        "Teams App Cache",
+        "Library/Caches/com.microsoft.teams2",
+        "App Cache",
+        Safe,
+        &["Microsoft Teams", "MSTeams"],
+    ),
+    g(
+        "work_apps",
+        "Notion Cache",
+        "Library/Application Support/Notion/Cache",
+        "App Cache",
+        Safe,
+        &["Notion"],
+    ),
+    g(
+        "work_apps",
+        "Notion Code Cache",
+        "Library/Application Support/Notion/Code Cache",
+        "App Cache",
+        Safe,
+        &["Notion"],
+    ),
+    g(
+        "work_apps",
+        "Notion GPU Cache",
+        "Library/Application Support/Notion/GPUCache",
+        "App Cache",
+        Safe,
+        &["Notion"],
+    ),
+    g(
+        "work_apps",
+        "Notion App Cache",
+        "Library/Caches/notion.id",
+        "App Cache",
+        Safe,
+        &["Notion"],
+    ),
+    g(
+        "work_apps",
+        "Postman Cache",
+        "Library/Application Support/Postman/Cache",
+        "App Cache",
+        Safe,
+        &["Postman"],
+    ),
+    g(
+        "work_apps",
+        "Postman Code Cache",
+        "Library/Application Support/Postman/Code Cache",
+        "App Cache",
+        Safe,
+        &["Postman"],
+    ),
+    g(
+        "work_apps",
+        "Postman GPU Cache",
+        "Library/Application Support/Postman/GPUCache",
+        "App Cache",
+        Safe,
+        &["Postman"],
+    ),
+    g(
+        "work_apps",
+        "Postman App Cache",
+        "Library/Caches/com.postmanlabs.mac",
+        "App Cache",
+        Safe,
+        &["Postman"],
+    ),
+    g(
+        "work_apps",
+        "Figma Cache",
+        "Library/Application Support/Figma/Cache",
+        "App Cache",
+        Safe,
+        &["Figma"],
+    ),
+    g(
+        "work_apps",
+        "Figma Code Cache",
+        "Library/Application Support/Figma/Code Cache",
+        "App Cache",
+        Safe,
+        &["Figma"],
+    ),
+    g(
+        "work_apps",
+        "Figma GPU Cache",
+        "Library/Application Support/Figma/GPUCache",
+        "App Cache",
+        Safe,
+        &["Figma"],
+    ),
+    g(
+        "work_apps",
+        "Figma App Cache",
+        "Library/Caches/com.figma.Desktop",
+        "App Cache",
+        Safe,
+        &["Figma"],
+    ),
     g(
         "node",
         "Yarn Cache",
@@ -971,6 +1148,103 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         Review,
         &[],
     ),
+    // Work apps (PLAN 2.18): Electron caches only. Zoom and Teams are macOS-only for now.
+    g(
+        "work_apps",
+        "Slack Cache",
+        "AppData/Roaming/Slack/Cache",
+        "App Cache",
+        Safe,
+        &["Slack"],
+    ),
+    g(
+        "work_apps",
+        "Slack Code Cache",
+        "AppData/Roaming/Slack/Code Cache",
+        "App Cache",
+        Safe,
+        &["Slack"],
+    ),
+    g(
+        "work_apps",
+        "Slack GPU Cache",
+        "AppData/Roaming/Slack/GPUCache",
+        "App Cache",
+        Safe,
+        &["Slack"],
+    ),
+    g(
+        "work_apps",
+        "Notion Cache",
+        "AppData/Roaming/Notion/Cache",
+        "App Cache",
+        Safe,
+        &["Notion"],
+    ),
+    g(
+        "work_apps",
+        "Notion Code Cache",
+        "AppData/Roaming/Notion/Code Cache",
+        "App Cache",
+        Safe,
+        &["Notion"],
+    ),
+    g(
+        "work_apps",
+        "Notion GPU Cache",
+        "AppData/Roaming/Notion/GPUCache",
+        "App Cache",
+        Safe,
+        &["Notion"],
+    ),
+    g(
+        "work_apps",
+        "Postman Cache",
+        "AppData/Roaming/Postman/Cache",
+        "App Cache",
+        Safe,
+        &["Postman"],
+    ),
+    g(
+        "work_apps",
+        "Postman Code Cache",
+        "AppData/Roaming/Postman/Code Cache",
+        "App Cache",
+        Safe,
+        &["Postman"],
+    ),
+    g(
+        "work_apps",
+        "Postman GPU Cache",
+        "AppData/Roaming/Postman/GPUCache",
+        "App Cache",
+        Safe,
+        &["Postman"],
+    ),
+    g(
+        "work_apps",
+        "Figma Cache",
+        "AppData/Roaming/Figma/Cache",
+        "App Cache",
+        Safe,
+        &["Figma"],
+    ),
+    g(
+        "work_apps",
+        "Figma Code Cache",
+        "AppData/Roaming/Figma/Code Cache",
+        "App Cache",
+        Safe,
+        &["Figma"],
+    ),
+    g(
+        "work_apps",
+        "Figma GPU Cache",
+        "AppData/Roaming/Figma/GPUCache",
+        "App Cache",
+        Safe,
+        &["Figma"],
+    ),
 ];
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -1198,6 +1472,103 @@ static GLOBAL_RULES: &[GlobalRule] = &[
         "Conda Envs",
         Danger,
         &[],
+    ),
+    // Work apps (PLAN 2.18): Electron caches only. Zoom and Teams are macOS-only for now.
+    g(
+        "work_apps",
+        "Slack Cache",
+        ".config/Slack/Cache",
+        "App Cache",
+        Safe,
+        &["Slack"],
+    ),
+    g(
+        "work_apps",
+        "Slack Code Cache",
+        ".config/Slack/Code Cache",
+        "App Cache",
+        Safe,
+        &["Slack"],
+    ),
+    g(
+        "work_apps",
+        "Slack GPU Cache",
+        ".config/Slack/GPUCache",
+        "App Cache",
+        Safe,
+        &["Slack"],
+    ),
+    g(
+        "work_apps",
+        "Notion Cache",
+        ".config/Notion/Cache",
+        "App Cache",
+        Safe,
+        &["Notion"],
+    ),
+    g(
+        "work_apps",
+        "Notion Code Cache",
+        ".config/Notion/Code Cache",
+        "App Cache",
+        Safe,
+        &["Notion"],
+    ),
+    g(
+        "work_apps",
+        "Notion GPU Cache",
+        ".config/Notion/GPUCache",
+        "App Cache",
+        Safe,
+        &["Notion"],
+    ),
+    g(
+        "work_apps",
+        "Postman Cache",
+        ".config/Postman/Cache",
+        "App Cache",
+        Safe,
+        &["Postman"],
+    ),
+    g(
+        "work_apps",
+        "Postman Code Cache",
+        ".config/Postman/Code Cache",
+        "App Cache",
+        Safe,
+        &["Postman"],
+    ),
+    g(
+        "work_apps",
+        "Postman GPU Cache",
+        ".config/Postman/GPUCache",
+        "App Cache",
+        Safe,
+        &["Postman"],
+    ),
+    g(
+        "work_apps",
+        "Figma Cache",
+        ".config/Figma/Cache",
+        "App Cache",
+        Safe,
+        &["Figma"],
+    ),
+    g(
+        "work_apps",
+        "Figma Code Cache",
+        ".config/Figma/Code Cache",
+        "App Cache",
+        Safe,
+        &["Figma"],
+    ),
+    g(
+        "work_apps",
+        "Figma GPU Cache",
+        ".config/Figma/GPUCache",
+        "App Cache",
+        Safe,
+        &["Figma"],
     ),
 ];
 
@@ -1466,7 +1837,7 @@ fn module_group(module: &str) -> &'static str {
         "ai_assistants" | "ai" => "AI Tools",
         "editors" => "Editors",
         "system" => "System",
-        "os_system" | "social" | "adobe" => "System & Apps",
+        "os_system" | "social" | "adobe" | "work_apps" => "System & Apps",
         "java" => "Java",
         "devops" => "DevOps",
         _ => "Dev Tools",
@@ -5106,6 +5477,284 @@ rm -f "{blob_str}""#
                 global_candidate(&cands, suffix).blocked_if_running,
                 vec!["Xcode", "swift-build", "swift"]
             );
+        }
+    }
+
+    // ----- Work apps: Slack, Zoom, Teams, Notion, Postman and Figma (PLAN 2.18) -----
+
+    #[cfg(target_os = "macos")]
+    const WORK_APPS_MACOS_CACHES: &[(&str, &str)] = &[
+        ("Library/Application Support/Slack/Cache", "Slack Cache"),
+        (
+            "Library/Application Support/Slack/Code Cache",
+            "Slack Code Cache",
+        ),
+        (
+            "Library/Application Support/Slack/GPUCache",
+            "Slack GPU Cache",
+        ),
+        (
+            "Library/Application Support/Slack/Service Worker/CacheStorage",
+            "Slack Service Worker Cache",
+        ),
+        (
+            "Library/Caches/com.tinyspeck.slackmacgap",
+            "Slack App Cache",
+        ),
+        ("Library/Caches/us.zoom.xos", "Zoom Cache"),
+        (
+            "Library/Application Support/Microsoft/Teams/Cache",
+            "Teams Cache",
+        ),
+        (
+            "Library/Application Support/Microsoft/Teams/Code Cache",
+            "Teams Code Cache",
+        ),
+        (
+            "Library/Application Support/Microsoft/Teams/GPUCache",
+            "Teams GPU Cache",
+        ),
+        ("Library/Caches/com.microsoft.teams2", "Teams App Cache"),
+        ("Library/Application Support/Notion/Cache", "Notion Cache"),
+        (
+            "Library/Application Support/Notion/Code Cache",
+            "Notion Code Cache",
+        ),
+        (
+            "Library/Application Support/Notion/GPUCache",
+            "Notion GPU Cache",
+        ),
+        ("Library/Caches/notion.id", "Notion App Cache"),
+        (
+            "Library/Application Support/Postman/Cache",
+            "Postman Cache",
+        ),
+        (
+            "Library/Application Support/Postman/Code Cache",
+            "Postman Code Cache",
+        ),
+        (
+            "Library/Application Support/Postman/GPUCache",
+            "Postman GPU Cache",
+        ),
+        ("Library/Caches/com.postmanlabs.mac", "Postman App Cache"),
+        ("Library/Application Support/Figma/Cache", "Figma Cache"),
+        (
+            "Library/Application Support/Figma/Code Cache",
+            "Figma Code Cache",
+        ),
+        (
+            "Library/Application Support/Figma/GPUCache",
+            "Figma GPU Cache",
+        ),
+        ("Library/Caches/com.figma.Desktop", "Figma App Cache"),
+    ];
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn work_apps_macos_caches_are_safe() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        for &(rel, _) in WORK_APPS_MACOS_CACHES {
+            write(&home.join(rel).join("blob"), 5000);
+        }
+
+        let r = scan(d.path(), &["work_apps"]);
+        assert_eq!(r.items.len(), WORK_APPS_MACOS_CACHES.len());
+        for &(rel, label) in WORK_APPS_MACOS_CACHES {
+            let item = find(&r, rel).unwrap_or_else(|| panic!("missing {rel}"));
+            assert_eq!(item.item.file_type, label, "{rel}");
+            assert_eq!(item.item.status, Safe, "{rel}");
+            assert_eq!(item.item.category, "App Cache", "{rel}");
+            assert_eq!(item.item.group, "System & Apps", "{rel}");
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn work_apps_missing_folders_give_no_items() {
+        let d = TempDir::new().unwrap();
+        let r = scan(d.path(), &["work_apps"]);
+        assert!(r.items.is_empty(), "{:?}", paths(&r));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn work_apps_blocked_lists_match_the_rules() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        for &(rel, _) in WORK_APPS_MACOS_CACHES {
+            write(&home.join(rel).join("blob"), 10);
+        }
+
+        let cands = global_candidates(d.path(), &["work_apps"]);
+        let expected: &[(&str, &[&str])] = &[
+            ("Library/Application Support/Slack/Cache", &["Slack"]),
+            (
+                "Library/Application Support/Slack/Service Worker/CacheStorage",
+                &["Slack"],
+            ),
+            ("Library/Caches/com.tinyspeck.slackmacgap", &["Slack"]),
+            ("Library/Caches/us.zoom.xos", &["zoom.us"]),
+            (
+                "Library/Application Support/Microsoft/Teams/Cache",
+                &["Microsoft Teams", "MSTeams"],
+            ),
+            (
+                "Library/Caches/com.microsoft.teams2",
+                &["Microsoft Teams", "MSTeams"],
+            ),
+            ("Library/Application Support/Notion/Cache", &["Notion"]),
+            ("Library/Caches/notion.id", &["Notion"]),
+            ("Library/Application Support/Postman/Cache", &["Postman"]),
+            ("Library/Caches/com.postmanlabs.mac", &["Postman"]),
+            ("Library/Application Support/Figma/Cache", &["Figma"]),
+            ("Library/Caches/com.figma.Desktop", &["Figma"]),
+        ];
+        for &(rel, procs) in expected {
+            assert_eq!(
+                global_candidate(&cands, rel).blocked_if_running,
+                procs.to_vec(),
+                "{rel}"
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn work_apps_ignore_cookies_and_browser_storage() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let app = home.join("Library/Application Support/Slack");
+        write(&app.join("Cache/blob"), 5000);
+        for name in [
+            "Cookies",
+            "Local Storage",
+            "IndexedDB",
+            "Session Storage",
+            "Partitions",
+            "databases",
+        ] {
+            write(&app.join(name).join("data"), 5000);
+        }
+
+        let r = scan(d.path(), &["work_apps"]);
+        assert_eq!(r.items.len(), 1, "{:?}", paths(&r));
+        assert!(find(&r, "Library/Application Support/Slack/Cache").is_some());
+        for name in [
+            "Cookies",
+            "Local Storage",
+            "IndexedDB",
+            "Session Storage",
+            "Partitions",
+            "databases",
+        ] {
+            assert!(
+                !r.items.iter().any(|i| i.item.path.contains(name)),
+                "{name} was reported: {:?}",
+                paths(&r)
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn work_apps_slack_bundle_cache_shadows_the_app_caches_catch_all() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let bundle = home.join("Library/Caches/com.tinyspeck.slackmacgap");
+        write(&bundle.join("blob"), 11 * 1024 * 1024);
+
+        // The catch-all alone lists the folder as a generic app cache...
+        let r = scan(d.path(), &["os_system"]);
+        let generic = find(&r, "Library/Caches/com.tinyspeck.slackmacgap").unwrap();
+        assert_eq!(generic.item.file_type, "com.tinyspeck.slackmacgap");
+        assert_eq!(generic.item.category, "System Cache");
+
+        // ...and the specific rule takes its place when both modules are on.
+        let r = scan(d.path(), &["os_system", "work_apps"]);
+        let matches: Vec<&ScannedItem> = r
+            .items
+            .iter()
+            .filter(|i| {
+                i.item
+                    .path
+                    .ends_with("Library/Caches/com.tinyspeck.slackmacgap")
+            })
+            .collect();
+        assert_eq!(matches.len(), 1, "{:?}", paths(&r));
+        assert_eq!(matches[0].item.file_type, "Slack App Cache");
+        assert_eq!(matches[0].item.category, "App Cache");
+        assert_eq!(matches[0].item.status, Safe);
+    }
+
+    #[cfg(target_os = "windows")]
+    const WORK_APPS_WINDOWS_CACHES: &[(&str, &str)] = &[
+        ("AppData/Roaming/Slack/Cache", "Slack Cache"),
+        ("AppData/Roaming/Slack/Code Cache", "Slack Code Cache"),
+        ("AppData/Roaming/Slack/GPUCache", "Slack GPU Cache"),
+        ("AppData/Roaming/Notion/Cache", "Notion Cache"),
+        ("AppData/Roaming/Notion/Code Cache", "Notion Code Cache"),
+        ("AppData/Roaming/Notion/GPUCache", "Notion GPU Cache"),
+        ("AppData/Roaming/Postman/Cache", "Postman Cache"),
+        ("AppData/Roaming/Postman/Code Cache", "Postman Code Cache"),
+        ("AppData/Roaming/Postman/GPUCache", "Postman GPU Cache"),
+        ("AppData/Roaming/Figma/Cache", "Figma Cache"),
+        ("AppData/Roaming/Figma/Code Cache", "Figma Code Cache"),
+        ("AppData/Roaming/Figma/GPUCache", "Figma GPU Cache"),
+    ];
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn work_apps_windows_caches_are_safe() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        for &(rel, _) in WORK_APPS_WINDOWS_CACHES {
+            write(&home.join(rel).join("blob"), 5000);
+        }
+
+        let r = scan(d.path(), &["work_apps"]);
+        assert_eq!(r.items.len(), WORK_APPS_WINDOWS_CACHES.len());
+        for &(rel, label) in WORK_APPS_WINDOWS_CACHES {
+            let item = find(&r, rel).unwrap_or_else(|| panic!("missing {rel}"));
+            assert_eq!(item.item.file_type, label, "{rel}");
+            assert_eq!(item.item.status, Safe, "{rel}");
+            assert_eq!(item.item.category, "App Cache", "{rel}");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    const WORK_APPS_LINUX_CACHES: &[(&str, &str)] = &[
+        (".config/Slack/Cache", "Slack Cache"),
+        (".config/Slack/Code Cache", "Slack Code Cache"),
+        (".config/Slack/GPUCache", "Slack GPU Cache"),
+        (".config/Notion/Cache", "Notion Cache"),
+        (".config/Notion/Code Cache", "Notion Code Cache"),
+        (".config/Notion/GPUCache", "Notion GPU Cache"),
+        (".config/Postman/Cache", "Postman Cache"),
+        (".config/Postman/Code Cache", "Postman Code Cache"),
+        (".config/Postman/GPUCache", "Postman GPU Cache"),
+        (".config/Figma/Cache", "Figma Cache"),
+        (".config/Figma/Code Cache", "Figma Code Cache"),
+        (".config/Figma/GPUCache", "Figma GPU Cache"),
+    ];
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn work_apps_linux_caches_are_safe() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        for &(rel, _) in WORK_APPS_LINUX_CACHES {
+            write(&home.join(rel).join("blob"), 5000);
+        }
+
+        let r = scan(d.path(), &["work_apps"]);
+        assert_eq!(r.items.len(), WORK_APPS_LINUX_CACHES.len());
+        for &(rel, label) in WORK_APPS_LINUX_CACHES {
+            let item = find(&r, rel).unwrap_or_else(|| panic!("missing {rel}"));
+            assert_eq!(item.item.file_type, label, "{rel}");
+            assert_eq!(item.item.status, Safe, "{rel}");
+            assert_eq!(item.item.category, "App Cache", "{rel}");
         }
     }
 
