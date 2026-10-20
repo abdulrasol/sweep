@@ -3,7 +3,7 @@ import UpdatePanel from '../components/UpdatePanel';
 import type { UpdateState } from '../lib/updates';
 
 const LINKS = [
-  { icon: Globe, label: 'Website', value: 'abdulrasol.github.io', href: 'https://abdulrasol.github.io' },
+  { icon: Globe, label: 'Website', value: 'sweep.subultech.top', href: 'https://sweep.subultech.top' },
   { icon: Github, label: 'GitHub', value: 'github.com/abdulrasol', href: 'https://github.com/abdulrasol' },
   { icon: Mail, label: 'Email', value: 'abdulrsol97@gmail.com', href: 'mailto:abdulrsol97@gmail.com' },
 ];
