@@ -268,3 +268,7 @@ Released under the [MIT License](LICENSE).
 <sub>Sweep can delete files permanently. Always review before you clean.</sub><br />
 <sub><i>Reclaiming your disk, one artifact at a time.</i></sub>
 </div>
+
+
+# test on dev
+# pnpm tauri dev

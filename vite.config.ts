@@ -13,3 +13,4 @@ export default defineConfig({
   // Tauri expects a fixed port and fails if it is taken.
   clearScreen: false,
 });
+
