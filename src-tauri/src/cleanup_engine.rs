@@ -2879,6 +2879,24 @@ mod tests {
         assert!(p.exists());
     }
 
+    #[test]
+    fn negative_7_missing_path_delete_is_ok() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let p = root.join("code/app/build");
+        write(&p.join("x"), 10);
+        let item = scanned(&p);
+        fs::remove_dir_all(&p).unwrap();
+
+        let result = delete_permanently(
+            &item,
+            &[root.join("code")],
+            &protected_paths(&root.join("home")),
+        );
+        assert!(result.is_ok(), "{result:?}");
+        assert!(!p.exists());
+    }
+
     // ----- Trash or permanent (PLAN 3.7) --------------------------------------
 
     #[test]
