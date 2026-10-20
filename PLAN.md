@@ -90,6 +90,8 @@
 - [x] 4.7 التوقيع والـ notarization والـ README (عالي) (أُنجزت 2026-10-19) — الإصدار v0.2.0 موقّع بـ Developer ID وموثّق من Apple وينفتح بدون تحذير؛ الـ CI صار يستخدم pnpm 10 مع frozen lockfile وينشر الإصدار مباشرة بدل Draft؛ README جديد بجدول كل الأهداف ومستويات الأمان
 - [x] 4.8 موقع Sweep على Cloudflare Pages مع `/api/latest` (عالي) (أُنجزت 2026-10-19) — الموقع انتقل من `docs/` لـ `web/`، مع llms.txt وبيانات منظّمة و sitemap، ويشتغل على sweep.subultech.top
 - [ ] 4.9 التحقق من التحديثات داخل التطبيق (متوسط) — الكود جاهز و tsc ينجح، بانتظار إصدار بعد v0.2.0 للتحقق إن v0.2.0 تعرض «Update to X»
+- [x] 4.10 فلتر الأداة بشاشة المراجعة (سهل) (أُنجزت 2026-10-20، متحققة يدوياً)
+- [ ] 4.11 الرام: ضغط الذاكرة وأكبر التطبيقات وإغلاقها بأمان (متوسط)
 
 ## تفاصيل المهام
 
@@ -958,4 +960,31 @@ blocked_if_running = ["Xcode"]
 **الملفات:** `src/lib/updates.ts, src/components/UpdatePanel.tsx, src/App.tsx, src/components/Header.tsx, src/views/SettingsView.tsx, src/views/AboutView.tsx, src-tauri/tauri.conf.json`
 
 **متى نعتبرها خلصت:** نسخة أقدم من آخر إصدار منشور تعرض «Update to X» عند التشغيل، والنسخة الأحدث تقول «You have the latest version».
+
+### 4.10 فلتر الأداة بشاشة المراجعة
+
+**الأولوية:** سهل · **الوقت التقريبي:** ساعتين
+
+**ليش:** بعد مسح فيه أدوات كثيرة، المستخدم يحتاج يشوف نتائج أداة وحدة بس (Xcode، Node، AI assistants…) بدون ما يضيّع بين مختلط النتائج.
+
+**الحل:** كل عنصر صار يحمل `module` (معرّف بطاقة شاشة المسح اللي أنتجته). شاشة المراجعة فيها قائمة Tool تعرض الأدوات اللي لها نتائج مع العدد والحجم، وتنطفي لما تكون أداة وحدة بس. البحث صار يطابق اسم الأداة أيضاً. تعريفات البطاقات انتقلت إلى `src/lib/modules.ts`.
+
+**الملفات:** `src-tauri/src/cleanup_engine*, src/lib/modules.ts, src/views/ReviewView.tsx, src/views/ScanView.tsx, src/types.d.ts`
+
+**متى نعتبرها خلصت:** اختيار أداة من القائمة يعرض نتائجها بس، والعدّادات و«Select safe shown» تشتغل على القائمة الظاهرة.
+
+### 4.11 الرام: ضغط الذاكرة وأكبر التطبيقات وإغلاقها بأمان
+
+**الأولوية:** متوسط · **الوقت التقريبي:** يوم
+
+**ليش:** قياسات من جهاز المستخدم: Memory Used حوالي 19.7 GB من 24 GB، و swap 10.3/11.3 GB، والـ compressor 8-9 GB، بينما ضغط الذاكرة أخضر (`kern.memorystatus_vm_pressure_level = 1`). ارتفاع «المستخدم» مع ضغط أخضر طبيعي على macOS.
+
+**ما لن نبنيه:** زر «free RAM»، و `sudo purge`، وأي سلوك منظّف رام.
+
+**الحل:**
+- 4.11a عرض ضغط الذاكرة والـ swap (`sysctl kern.memorystatus_vm_pressure_level` و `sysctl vm.swapusage`).
+- 4.11b قائمة أكبر التطبيقات بالذاكرة (تجميع العمليات المساعدة تحت تطبيقها).
+- 4.11c إغلاق آمن لتطبيق (تأكيد، وبدون force-kill افتراضياً).
+- 4.11d عمليات المطورين بالخلفية: gradle/kotlin daemons، و `ollama stop`، و docker، و `xcrun simctl shutdown all`، وسيرفرات dart و rust-analyzer.
+- قرار مفتوح: الإغلاق عبر `osascript` (مؤدب) مقابل SIGTERM.
 
