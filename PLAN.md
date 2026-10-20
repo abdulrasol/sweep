@@ -693,7 +693,7 @@ for e in WalkDir::new(p).follow_links(false) {
 
 ### 2.19 Trae و Jan و Unsloth
 **المشكلة:** طلب المستخدم إضافة Jan و Unsloth و MiniMax و Trae.
-**الحل (منفّذ بعد فحص أحجام جهاز المستخدم):** Trae: التحديث المنزّل `Library/Caches/Trae/pending` و `update.zip` (حوالي 900 MB) مع `com.trae.app` و ShipIt، كلها Safe. Jan: كل نموذج بـ `llamacpp/models` و `mlx/models` سطر Review (يدعم تخطيط `name/` و `org/repo/`)، على الماك ولينكس وويندوز. محمي: `.trae/trae-jwt-token` و `.jan` و `.unsloth` (والبيئة و `auth` و `studio.db`) و Jan `threads` و `assistants` و `store.json`.
+**الحل (منفّذ بعد فحص أحجام جهاز المستخدم):** Trae: التحديث المنزّل `Library/Caches/Trae/pending` و `update.zip` (حوالي 900 MB) مع `com.trae.app` و ShipIt، كلها Safe. Jan: كل نموذج بـ `llamacpp/models` و `mlx/models` سطر Review، والتنزيل الناقص (مجلد فيه `model.gguf.tmp` بدون نموذج مكتمل) سطر Review بنوع مستقل (على جهاز المستخدم 291 MB) (يدعم تخطيط `name/` و `org/repo/`)، على الماك ولينكس وويندوز. محمي: `.trae/trae-jwt-token` و `.jan` و `.unsloth` (والبيئة و `auth` و `studio.db`) و Jan `threads` و `assistants` و `store.json`.
 **غير منفّذ عمداً:** Unsloth بدون قواعد حذف (2 GB منها بيئة التطبيق، و `llama.cpp` و `audio.cpp` حوالي 320 MB وما موثّق إن Studio يعيد بناءها). MiniMax ما لقينا له مجلد ولا تطبيق موثّق (نماذجه تمر بكاش Hugging Face). GPT4All مسارها موثّق (`Library/Application Support/nomic.ai/GPT4All`: نماذج gguf ومحادثات chat) بس غير مثبّت عند المستخدم فما انفحص.
 
 ## المرحلة 3: معمارية المحرك
