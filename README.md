@@ -229,6 +229,11 @@ cd sweep
 pnpm install
 cargo tauri dev      # run in development
 cargo tauri build    # build the app
+
+```
+or when testing
+```bash
+pnpm tauri dev
 ```
 
 Output: `target/release/bundle/` (`dmg/` on macOS, `msi/` on Windows, `deb/` on Linux). Local builds aren’t notarized, so on first launch right-click the app and choose **Open**.
@@ -270,5 +275,4 @@ Released under the [MIT License](LICENSE).
 </div>
 
 
-# test on dev
-# pnpm tauri dev
+
