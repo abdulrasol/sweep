@@ -3552,6 +3552,75 @@ mod tests {
     }
 
     #[test]
+    fn jan_unfinished_download_is_review() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let data = home.join("Library/Application Support/Jan/data");
+        write(&data.join("llamacpp/models/llama3/model.gguf.tmp"), 5000);
+        write(&data.join("llamacpp/models/llama3/model.gguf.url"), 5000);
+
+        let r = scan(d.path(), &["ai"]);
+        assert_eq!(r.items.len(), 1, "{:?}", paths(&r));
+        let item = find(&r, "Jan/data/llamacpp/models/llama3").unwrap();
+        assert_eq!(item.item.file_type, "Jan Unfinished Downloads");
+        assert_eq!(item.item.status, Review);
+        assert_eq!(item.blocked_if_running, vec!["Jan"]);
+        assert!(
+            item.item.description.starts_with("llama3: "),
+            "{}",
+            item.item.description
+        );
+        assert!(item.item.description.contains("did not finish"));
+    }
+
+    #[test]
+    fn jan_finished_model_with_partial_file_is_listed_once() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let data = home.join("Library/Application Support/Jan/data");
+        write(&data.join("llamacpp/models/llama3/model.yml"), 5000);
+        write(&data.join("llamacpp/models/llama3/model.gguf.tmp"), 5000);
+
+        let r = scan(d.path(), &["ai"]);
+        assert_eq!(r.items.len(), 1, "{:?}", paths(&r));
+        let item = find(&r, "Jan/data/llamacpp/models/llama3").unwrap();
+        assert_eq!(item.item.file_type, "Jan Models");
+        assert!(item.item.description.starts_with("llama3: "));
+    }
+
+    #[test]
+    fn jan_url_only_folder_is_not_listed() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let data = home.join("Library/Application Support/Jan/data");
+        write(&data.join("llamacpp/models/llama3/model.gguf.url"), 5000);
+
+        let r = scan(d.path(), &["ai"]);
+        assert!(r.items.is_empty(), "{:?}", paths(&r));
+    }
+
+    #[test]
+    fn jan_unfinished_download_at_depth_two_uses_relative_name() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let data = home.join("Library/Application Support/Jan/data");
+        write(&data.join("llamacpp/models/org/repo/model.gguf.tmp"), 5000);
+        write(&data.join("llamacpp/models/org/repo/mmproj.gguf.tmp"), 5000);
+
+        let r = scan(d.path(), &["ai"]);
+        assert_eq!(r.items.len(), 1, "{:?}", paths(&r));
+        let item = find(&r, "Jan/data/llamacpp/models/org/repo").unwrap();
+        assert_eq!(item.item.file_type, "Jan Unfinished Downloads");
+        assert_eq!(item.item.status, Review);
+        assert!(
+            item.item.description.starts_with("org/repo: "),
+            "{}",
+            item.item.description
+        );
+        assert!(find(&r, "Jan/data/llamacpp/models/org").is_none());
+    }
+
+    #[test]
     fn protected_jan_trae_and_unsloth_paths_are_refused() {
         let d = TempDir::new().unwrap();
         let root = fs::canonicalize(d.path()).unwrap();

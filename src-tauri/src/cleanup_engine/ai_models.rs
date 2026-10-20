@@ -224,6 +224,10 @@ fn collect_jan_models(models: &Path, out: &mut Vec<Candidate>) {
             push_jan_model(path, &name, out);
             continue;
         }
+        if is_jan_unfinished(&path) {
+            push_jan_unfinished(path, &name, out);
+            continue;
+        }
         let Ok(level2) = fs::read_dir(&path) else {
             continue;
         };
@@ -238,12 +242,14 @@ fn collect_jan_models(models: &Path, out: &mut Vec<Candidate>) {
             }
             if is_jan_model(&child_path) {
                 push_jan_model(child_path, &format!("{name}/{child_name}"), out);
+            } else if is_jan_unfinished(&child_path) {
+                push_jan_unfinished(child_path, &format!("{name}/{child_name}"), out);
             }
         }
     }
 }
 
-/// A Jan model folder directly contains `model.yml` or at least one `.gguf` file.
+/// A Jan folder directly contains `model.yml` or at least one `.gguf` file.
 fn is_jan_model(dir: &Path) -> bool {
     if dir.join("model.yml").is_file() {
         return true;
@@ -260,15 +266,49 @@ fn is_jan_model(dir: &Path) -> bool {
     })
 }
 
+/// A Jan folder holds a partial `.gguf.tmp` download and no finished model.
+fn is_jan_unfinished(dir: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        entry.file_type().map(|t| t.is_file()).unwrap_or(false)
+            && entry
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".gguf.tmp")
+    })
+}
+
 fn push_jan_model(path: PathBuf, name: &str, out: &mut Vec<Candidate>) {
-    out.push(Candidate {
+    push_jan_item(
         path,
-        file_type: "Jan Models".to_string(),
-        category: "AI Model Cache".to_string(),
-        safety: Safety::Review,
-        description: format!(
+        "Jan Models",
+        &format!(
             "{name}: a model downloaded in Jan. Downloaded again from the catalog when you need it. Models you imported yourself cannot be downloaded again."
         ),
+        out,
+    );
+}
+
+fn push_jan_unfinished(path: PathBuf, name: &str, out: &mut Vec<Candidate>) {
+    push_jan_item(
+        path,
+        "Jan Unfinished Downloads",
+        &format!(
+            "{name}: a download in Jan that did not finish. Jan downloads it again when you start it."
+        ),
+        out,
+    );
+}
+
+fn push_jan_item(path: PathBuf, file_type: &str, description: &str, out: &mut Vec<Candidate>) {
+    out.push(Candidate {
+        path,
+        file_type: file_type.to_string(),
+        category: "AI Model Cache".to_string(),
+        safety: Safety::Review,
+        description: description.to_string(),
         blocked_if_running: vec!["Jan"],
         project_root: None,
         action: Action::DeletePath,
