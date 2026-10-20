@@ -64,6 +64,7 @@
 - [ ] 2.16 تنظيف أدوات الذكاء الاصطناعي (عالي) — الكود جاهز ومختبَر، بانتظار فحص تجريبي على الماك
 - [x] 2.17 مدراء حزم إضافية: Maven و Swift Package Manager و Deno و Terraform (سهل) (أُنجزت 2026-10-19، بالاختبارات فقط)
 - [x] 2.18 كاشات تطبيقات العمل: Slack و Zoom و Teams و Notion و Postman و Figma (سهل) (أُنجزت 2026-10-20، بالاختبارات فقط)
+- [x] 2.19 Trae و Jan و Unsloth (سهل) (أُنجزت 2026-10-20، Trae متحقق على الجهاز، Jan بالاختبارات)
 
 **المرحلة 3: معمارية المحرك**
 
@@ -689,6 +690,11 @@ for e in WalkDir::new(p).follow_links(false) {
 ### 2.18 كاشات تطبيقات العمل
 **المشكلة:** تطبيقات العمل المبنية على Electron تجمّع كاشات كبيرة، وهذي مو أدوات مطورين فقط.
 **الحل (منفّذ):** وحدة `work_apps` ببطاقة "Work apps". كل الصفوف Safe وتنقفل لو التطبيق شغّال. ماكو أي صف لـ Cookies أو Local Storage أو IndexedDB أو بيانات الدخول. Zoom و Teams على الماك فقط. Windows و Linux للتطبيقات الأربعة المبنية على Electron بمسارات معروفة، وما اتجرّبت على جهاز حقيقي.
+
+### 2.19 Trae و Jan و Unsloth
+**المشكلة:** طلب المستخدم إضافة Jan و Unsloth و MiniMax و Trae.
+**الحل (منفّذ بعد فحص أحجام جهاز المستخدم):** Trae: التحديث المنزّل `Library/Caches/Trae/pending` و `update.zip` (حوالي 900 MB) مع `com.trae.app` و ShipIt، كلها Safe. Jan: كل نموذج بـ `llamacpp/models` و `mlx/models` سطر Review (يدعم تخطيط `name/` و `org/repo/`)، على الماك ولينكس وويندوز. محمي: `.trae/trae-jwt-token` و `.jan` و `.unsloth` (والبيئة و `auth` و `studio.db`) و Jan `threads` و `assistants` و `store.json`.
+**غير منفّذ عمداً:** Unsloth بدون قواعد حذف (2 GB منها بيئة التطبيق، و `llama.cpp` و `audio.cpp` حوالي 320 MB وما موثّق إن Studio يعيد بناءها). MiniMax ما لقينا له مجلد ولا تطبيق موثّق (نماذجه تمر بكاش Hugging Face). GPT4All مسارها موثّق (`Library/Application Support/nomic.ai/GPT4All`: نماذج gguf ومحادثات chat) بس غير مثبّت عند المستخدم فما انفحص.
 
 ## المرحلة 3: معمارية المحرك
 
