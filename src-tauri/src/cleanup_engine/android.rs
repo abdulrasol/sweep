@@ -97,6 +97,7 @@ fn candidate(
         known_size: None,
         min_bytes: 1,
         group: "Dev Tools",
+        module: "android",
         catch_all: false,
     }
 }

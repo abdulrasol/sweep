@@ -77,6 +77,7 @@ fn candidate(
         known_size: None,
         min_bytes: 1,
         group: "Dev Tools",
+        module: "node",
         catch_all: false,
     }
 }

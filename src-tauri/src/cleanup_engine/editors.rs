@@ -162,6 +162,7 @@ fn collect_orphaned_workspace_storage(env: &Env, out: &mut Vec<Candidate>) {
                 file_type: format!("{editor_name} Workspace"),
                 category: "Workspace Storage".to_string(),
                 group: GROUP,
+                module: MODULE,
                 safety,
                 description,
                 blocked_if_running: procs.to_vec(),
@@ -238,6 +239,7 @@ fn collect_jetbrains_root(
                     file_type: format!("JetBrains {product}"),
                     category: category.to_string(),
                     group: GROUP,
+                    module: MODULE,
                     safety,
                     description: format!(
                         "Old {desc_kind} for {product} {year}.{minor}. A newer version is installed."

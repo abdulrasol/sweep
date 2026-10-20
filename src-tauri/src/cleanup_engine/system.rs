@@ -75,6 +75,7 @@ fn log_item(path: PathBuf, name: String) -> Candidate {
         file_type: name,
         category: "System Log".to_string(),
         group: GROUP,
+        module: MODULE,
         safety: Safe,
         description: LOGS_DESCRIPTION.to_string(),
         blocked_if_running: Vec::new(),
@@ -107,6 +108,7 @@ fn collect_backups(env: &Env, out: &mut Vec<Candidate>) {
             file_type: name,
             category: "Device Backup".to_string(),
             group: GROUP,
+            module: MODULE,
             safety: Danger,
             description: format!(
                 "iPhone or iPad backup from {date}. Deleting it is permanent and cannot be undone."
@@ -144,6 +146,7 @@ fn collect_trash(env: &Env, out: &mut Vec<Candidate>) {
             file_type: name,
             category: "Trash".to_string(),
             group: GROUP,
+            module: MODULE,
             safety: Review,
             description: TRASH_DESCRIPTION.to_string(),
             blocked_if_running: Vec::new(),
@@ -206,6 +209,7 @@ fn collect_downloads_at(env: &Env, now: SystemTime, out: &mut Vec<Candidate>) {
             file_type: name,
             category: "Old Download".to_string(),
             group: GROUP,
+            module: MODULE,
             safety: Review,
             description: format!(
                 "Installer or archive in Downloads, last changed on {date} ({days} days ago). It is your own file, so check it before removing."

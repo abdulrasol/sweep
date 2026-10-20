@@ -45,6 +45,7 @@ pub(super) fn collect(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidat
             known_size: None,
             min_bytes: 1,
             group: "Dev Tools",
+            module: "rust",
             catch_all: false,
         });
     }

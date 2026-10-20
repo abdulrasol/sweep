@@ -144,6 +144,7 @@ pub(crate) fn collect_with_timeout(
             known_size: Some(bytes),
             min_bytes: 1,
             group: "Dev Tools",
+            module: "docker",
             catch_all: false,
         });
     }

@@ -79,6 +79,7 @@ fn collect_huggingface_hub(home: &Path, out: &mut Vec<Candidate>) {
             known_size: None,
             min_bytes: 1,
             group: "AI Tools",
+            module: "ai",
             catch_all: false,
         });
     }
@@ -99,6 +100,7 @@ fn collect_huggingface_extra(home: &Path, out: &mut Vec<Candidate>) {
             known_size: None,
             min_bytes: 1,
             group: "AI Tools",
+            module: "ai",
             catch_all: false,
         });
     }
@@ -117,6 +119,7 @@ fn collect_huggingface_extra(home: &Path, out: &mut Vec<Candidate>) {
             known_size: None,
             min_bytes: 1,
             group: "AI Tools",
+            module: "ai",
             catch_all: false,
         });
     }
@@ -174,6 +177,7 @@ fn collect_lm_studio(home: &Path, out: &mut Vec<Candidate>) {
                     known_size: None,
                     min_bytes: 1,
                     group: "AI Tools",
+                    module: "ai",
                     catch_all: false,
                 });
             }
@@ -315,6 +319,7 @@ fn push_jan_item(path: PathBuf, file_type: &str, description: &str, out: &mut Ve
         known_size: None,
         min_bytes: 1,
         group: "AI Tools",
+        module: "ai",
         catch_all: false,
     });
 }
@@ -454,6 +459,7 @@ fn collect_ollama(home: &Path, out: &mut Vec<Candidate>) {
                         known_size: Some(total_size),
                         min_bytes: 1,
                         group: "AI Tools",
+                        module: "ai",
                         catch_all: false,
                     });
                 }

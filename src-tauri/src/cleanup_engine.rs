@@ -60,6 +60,8 @@ pub struct CleanupItem {
     pub category: String,
     /// Broad bucket for filtering: Projects, Dev Tools, AI Tools, Editors, System.
     pub group: String,
+    /// Scan-screen card id that produced the item, e.g. "xcode" or "node".
+    pub module: String,
     pub size_bytes: u64,
     pub status: Safety,
     pub description: String,
@@ -1613,6 +1615,8 @@ struct Candidate {
     project_root: Option<PathBuf>,
     min_bytes: u64,
     group: &'static str,
+    /// Scan-screen card id that produced the item.
+    module: &'static str,
     action: Action,
     /// Size reported by the tool that owns the item; skips walking `path`.
     known_size: Option<u64>,
@@ -1798,6 +1802,7 @@ pub fn scan_directory_with(
                     file_type: c.file_type,
                     category: c.category,
                     group: c.group.to_string(),
+                    module: c.module.to_string(),
                     size_bytes: size,
                     status: c.safety,
                     description: c.description,
@@ -1887,6 +1892,7 @@ fn collect_global(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) 
                         known_size: None,
                         min_bytes: rule.min_bytes,
                         group: module_group(rule.module),
+                        module: rule.module,
                         catch_all: rule.module == "os_system",
                     });
                 }
@@ -1914,6 +1920,7 @@ fn collect_global(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidate>) 
                     known_size: None,
                     min_bytes: rule.min_bytes,
                     group: module_group(rule.module),
+                    module: rule.module,
                     catch_all: false,
                 });
             }
@@ -2012,6 +2019,7 @@ fn collect_projects(
                         known_size: None,
                         min_bytes: 1,
                         group: "Projects",
+                        module: rule.module,
                         catch_all: false,
                     });
                 }
@@ -2782,6 +2790,7 @@ mod tests {
                 file_type: String::new(),
                 category: String::new(),
                 group: String::new(),
+                module: String::new(),
                 size_bytes: 1,
                 status: Safe,
                 description: String::new(),
@@ -3650,6 +3659,83 @@ mod tests {
         assert!(home
             .join("Library/Application Support/Jan/data/threads/t1.json")
             .exists());
+    }
+
+    // ----- Tool filter on the Review screen (PLAN 4.10) -----------------------
+
+    #[test]
+    fn every_item_carries_the_enabled_module() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let project = d.path().join("app");
+        write(&project.join("pubspec.yaml"), 10);
+        write(&project.join("build/out.bin"), 5000);
+        write(
+            &home.join("Library/Developer/Xcode/DerivedData/App-abc/out.o"),
+            5000,
+        );
+        write(&home.join("Library/Caches/Trae/pending/blob"), 5000);
+        write(
+            &home.join("Library/Application Support/Jan/data/llamacpp/models/llama3/model.yml"),
+            5000,
+        );
+        write(&home.join("Library/Logs/MyApp/app.log"), 5000);
+        write(&home.join(".npm/_cacache/blob"), 5000);
+
+        let modules = ["flutter", "node", "xcode", "ai_assistants", "ai", "system"];
+        let r = scan(d.path(), &modules);
+        assert!(!r.items.is_empty());
+        for item in &r.items {
+            assert!(!item.item.module.is_empty(), "{}", item.item.path);
+            assert!(
+                modules.contains(&item.item.module.as_str()),
+                "{} -> {}",
+                item.item.path,
+                item.item.module
+            );
+        }
+        let distinct: HashSet<&str> = r.items.iter().map(|i| i.item.module.as_str()).collect();
+        assert!(distinct.len() >= 5, "{distinct:?}");
+    }
+
+    #[test]
+    fn trae_and_jan_items_name_their_modules() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join("Library/Caches/Trae/pending/blob"), 5000);
+        write(
+            &home.join("Library/Application Support/Jan/data/llamacpp/models/llama3/model.yml"),
+            5000,
+        );
+
+        let r = scan(d.path(), &["ai_assistants", "ai"]);
+        assert_eq!(
+            find(&r, "Library/Caches/Trae/pending").unwrap().item.module,
+            "ai_assistants"
+        );
+        assert_eq!(
+            find(&r, "Jan/data/llamacpp/models/llama3")
+                .unwrap()
+                .item
+                .module,
+            "ai"
+        );
+    }
+
+    #[test]
+    fn one_enabled_module_gives_only_its_module() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(&home.join("Library/Caches/Trae/pending/blob"), 5000);
+        write(
+            &home.join("Library/Application Support/Jan/data/llamacpp/models/llama3/model.yml"),
+            5000,
+        );
+        write(&home.join("Library/Logs/MyApp/app.log"), 5000);
+
+        let r = scan(d.path(), &["ai_assistants"]);
+        assert!(!r.items.is_empty());
+        assert!(r.items.iter().all(|i| i.item.module == "ai_assistants"));
     }
 
     // ----- Old extensions and versions -----------------------------------------

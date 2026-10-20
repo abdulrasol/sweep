@@ -21,6 +21,7 @@ pub(super) fn candidate(modcache: PathBuf, go: PathBuf) -> Candidate {
         known_size: None,
         min_bytes: 1,
         group: "Dev Tools",
+        module: "go",
         catch_all: false,
     }
 }

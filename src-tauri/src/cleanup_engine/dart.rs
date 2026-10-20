@@ -46,6 +46,7 @@ pub(super) fn pub_cache_candidate(cache: PathBuf, dart: PathBuf) -> Candidate {
         known_size: None,
         min_bytes: 1,
         group: "Dev Tools",
+        module: "flutter",
         catch_all: false,
     }
 }

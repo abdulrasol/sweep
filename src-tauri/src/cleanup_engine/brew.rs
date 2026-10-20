@@ -121,6 +121,7 @@ pub(crate) fn collect_with_timeout(
         known_size: Some(total_bytes),
         min_bytes: 1,
         group: "Dev Tools",
+        module: "homebrew",
         catch_all: false,
     });
 }

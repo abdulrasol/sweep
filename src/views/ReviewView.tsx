@@ -7,6 +7,7 @@ import {
 import { invoke, formatBytes } from '../lib/tauri';
 import { BrandTile, groupIcon } from '../lib/brands';
 import { goesPermanent } from '../lib/deleteMode';
+import { moduleTitle } from '../lib/modules';
 
 interface ReviewViewProps {
   scanPath: string;
@@ -122,6 +123,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
   const [groupFilter, setGroupFilter] = useState<string>('ALL');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [safetyFilter, setSafetyFilter] = useState<SafetyFilter>('ALL');
+  const [toolFilter, setToolFilter] = useState<string>('ALL');
   const [sortKey, setSortKey] = useState<SortKey>('size');
   const [showAllTypes, setShowAllTypes] = useState(false);
 
@@ -175,6 +177,19 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
     );
   }, [items]);
 
+  const toolOptions = useMemo(() => {
+    const map = new Map<string, CleanupItem[]>();
+    for (const i of items) map.set(i.module, [...(map.get(i.module) ?? []), i]);
+    return [...map.entries()]
+      .map(([id, list]) => ({ id, count: list.length, size: sum(list) }))
+      .sort((a, b) => b.size - a.size);
+  }, [items]);
+
+  // A rescan or removals may leave the chosen tool with no items.
+  useEffect(() => {
+    if (toolFilter !== 'ALL' && !items.some(i => i.module === toolFilter)) setToolFilter('ALL');
+  }, [items, toolFilter]);
+
   const inGroup = useMemo(
     () => (groupFilter === 'ALL' ? items : items.filter(i => i.group === groupFilter)),
     [items, groupFilter],
@@ -189,12 +204,13 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = inGroup.filter(i =>
+      (toolFilter === 'ALL' || i.module === toolFilter) &&
       (typeFilter === 'ALL' || i.type === typeFilter) &&
       (safetyFilter === 'ALL' || i.status === safetyFilter) &&
-      (!q || i.path.toLowerCase().includes(q) || i.type.toLowerCase().includes(q) || i.file_type.toLowerCase().includes(q)),
+      (!q || i.path.toLowerCase().includes(q) || i.type.toLowerCase().includes(q) || i.file_type.toLowerCase().includes(q) || moduleTitle(i.module).toLowerCase().includes(q)),
     );
     return list.sort((a, b) => (sortKey === 'size' ? b.size_bytes - a.size_bytes : a.path.localeCompare(b.path)));
-  }, [inGroup, typeFilter, safetyFilter, query, sortKey]);
+  }, [inGroup, toolFilter, typeFilter, safetyFilter, query, sortKey]);
 
   const sections = useMemo(() => {
     if (groupFilter !== 'ALL') return [[groupFilter, visible] as [string, CleanupItem[]]];
@@ -212,7 +228,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
   const safetyCounts = (['SAFE', 'REVIEW', 'DANGER'] as SafetyLevel[]).map(
     s => [s, items.filter(i => i.status === s)] as const,
   );
-  const filtersActive = groupFilter !== 'ALL' || typeFilter !== 'ALL' || safetyFilter !== 'ALL' || query !== '';
+  const filtersActive = groupFilter !== 'ALL' || typeFilter !== 'ALL' || safetyFilter !== 'ALL' || toolFilter !== 'ALL' || query !== '';
 
   // ----- Actions -------------------------------------------------------------
 
@@ -254,6 +270,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
     setGroupFilter('ALL');
     setTypeFilter('ALL');
     setSafetyFilter('ALL');
+    setToolFilter('ALL');
     setQuery('');
   };
 
@@ -418,6 +435,22 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
                 className="w-full bg-surface border border-outline rounded-lg pl-9 pr-3 py-1.5 text-xs outline-none focus:border-primary/60 placeholder:text-on-surface/40"
               />
             </div>
+
+            {toolOptions.length > 1 && (
+              <select
+                aria-label="Tool"
+                value={toolFilter}
+                onChange={(e) => setToolFilter(e.target.value)}
+                className="bg-surface border border-outline rounded-lg px-3 py-1.5 text-xs text-on-surface/70 outline-none focus:border-primary/60 shrink-0"
+              >
+                <option value="ALL">All tools</option>
+                {toolOptions.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {moduleTitle(t.id)} · {t.count} · {formatBytes(t.size)}
+                  </option>
+                ))}
+              </select>
+            )}
 
             <button
               onClick={() => setSortKey(k => (k === 'size' ? 'name' : 'size'))}

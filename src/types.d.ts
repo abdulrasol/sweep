@@ -10,6 +10,8 @@ declare global {
     type: string;
     /** Filter bucket: Projects, Dev Tools, AI Tools, Editors, System & Apps. */
     group: string;
+    /** Scan-screen card id that produced the item, e.g. "xcode" or "node". */
+    module: string;
     /** Framework or tool, e.g. "Flutter". */
     file_type: string;
     size_bytes: number;
