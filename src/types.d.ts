@@ -19,6 +19,8 @@ declare global {
     description: string;
     /** App that must be closed before this item can be removed. */
     blocked_by: string | null;
+    /** Unix seconds of the newest project activity; null for global items. */
+    last_active: number | null;
   }
 
   interface SystemInfo {

@@ -19,6 +19,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use walkdir::WalkDir;
 
+mod age;
 mod ai_models;
 mod ai_rules;
 mod android;
@@ -67,6 +68,9 @@ pub struct CleanupItem {
     pub description: String,
     /// Name of a running app that must be closed before this item can be removed.
     pub blocked_by: Option<String>,
+    /// Newest known project activity (unix seconds); `None` for global items and
+    /// projects whose activity cannot be determined.
+    pub last_active: Option<i64>,
 }
 
 /// Paths the engine needs from the environment. Injected so tests can use a fake home.
@@ -1747,6 +1751,25 @@ pub fn scan_directory_with(
         return None;
     }
 
+    // Project activity is identical for every item of a project, so it is
+    // computed once per distinct root before the parallel sizing stage.
+    let mut activity: HashMap<PathBuf, Option<i64>> = HashMap::new();
+    for candidate in &candidates {
+        let Some(root) = &candidate.project_root else {
+            continue;
+        };
+        if activity.contains_key(root) {
+            continue;
+        }
+        if (hooks.cancelled)() {
+            return None;
+        }
+        activity.insert(
+            root.clone(),
+            age::project_last_active(root, hooks.cancelled),
+        );
+    }
+
     (hooks.progress)(ScanProgress::Phase {
         label: "Measuring sizes".to_string(),
     });
@@ -1795,6 +1818,12 @@ pub fn scan_directory_with(
                 .iter()
                 .find(|name| running.contains(&name.to_lowercase()))
                 .map(|s| s.to_string());
+            let last_active = c
+                .project_root
+                .as_ref()
+                .and_then(|root| activity.get(root))
+                .copied()
+                .flatten();
             Some(ScannedItem {
                 item: CleanupItem {
                     id: stable_id(&path_str),
@@ -1807,6 +1836,7 @@ pub fn scan_directory_with(
                     status: c.safety,
                     description: c.description,
                     blocked_by,
+                    last_active,
                 },
                 canonical,
                 blocked_if_running: c.blocked_if_running,
@@ -2795,6 +2825,7 @@ mod tests {
                 status: Safe,
                 description: String::new(),
                 blocked_by: None,
+                last_active: None,
             },
             canonical: fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
             blocked_if_running: vec![],
@@ -6303,6 +6334,35 @@ rm -f "{blob_str}""#
             Some(ScanProgress::Measuring { done, total, .. }) => assert_eq!(done, total),
             other => panic!("last event is not Measuring: {other:?}"),
         }
+    }
+
+    #[test]
+    fn project_items_share_last_active_and_global_items_have_none() {
+        let d = TempDir::new().unwrap();
+        let project = d.path().join("app");
+        write(&project.join("pubspec.yaml"), 10);
+        write(&project.join("build/out.bin"), BIG);
+        write(&project.join(".dart_tool/x"), BIG);
+        write(
+            &d.path().join("__home/Library/Caches/Trae/pending/blob"),
+            BIG,
+        );
+
+        let r = scan(d.path(), &["flutter", "ai_assistants"]);
+        let project_items: Vec<_> = r
+            .items
+            .iter()
+            .filter(|i| i.item.group == "Projects")
+            .collect();
+        assert_eq!(project_items.len(), 2, "{}", paths(&r).join("\n"));
+        let first = project_items[0].item.last_active;
+        assert!(first.is_some(), "project activity was not detected");
+        assert!(project_items
+            .iter()
+            .all(|i| i.item.last_active == first));
+
+        let global = find(&r, "Trae/pending").expect("Trae pending item");
+        assert_eq!(global.item.last_active, None);
     }
 
     #[test]

@@ -8,6 +8,7 @@ import { invoke, formatBytes } from '../lib/tauri';
 import { BrandTile, groupIcon } from '../lib/brands';
 import { goesPermanent } from '../lib/deleteMode';
 import { moduleTitle } from '../lib/modules';
+import { formatAge } from '../lib/age';
 
 interface ReviewViewProps {
   scanPath: string;
@@ -20,7 +21,7 @@ interface ReviewViewProps {
 }
 
 type SafetyFilter = 'ALL' | SafetyLevel;
-type SortKey = 'size' | 'name';
+type SortKey = 'size' | 'name' | 'age';
 
 type ScanProgressEvent =
   | { kind: 'phase'; label: string }
@@ -124,6 +125,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [safetyFilter, setSafetyFilter] = useState<SafetyFilter>('ALL');
   const [toolFilter, setToolFilter] = useState<string>('ALL');
+  const [ageFilter, setAgeFilter] = useState<string>('ALL');
   const [sortKey, setSortKey] = useState<SortKey>('size');
   const [showAllTypes, setShowAllTypes] = useState(false);
 
@@ -203,14 +205,23 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const olderThanSecs = ageFilter === 'ALL' ? null : Number(ageFilter) * 86_400;
     const list = inGroup.filter(i =>
       (toolFilter === 'ALL' || i.module === toolFilter) &&
       (typeFilter === 'ALL' || i.type === typeFilter) &&
       (safetyFilter === 'ALL' || i.status === safetyFilter) &&
+      (olderThanSecs === null || (i.last_active !== null && nowSec - i.last_active > olderThanSecs)) &&
       (!q || i.path.toLowerCase().includes(q) || i.type.toLowerCase().includes(q) || i.file_type.toLowerCase().includes(q) || moduleTitle(i.module).toLowerCase().includes(q)),
     );
-    return list.sort((a, b) => (sortKey === 'size' ? b.size_bytes - a.size_bytes : a.path.localeCompare(b.path)));
-  }, [inGroup, toolFilter, typeFilter, safetyFilter, query, sortKey]);
+    return list.sort((a, b) => {
+      if (sortKey === 'size') return b.size_bytes - a.size_bytes;
+      if (sortKey === 'age') {
+        return (a.last_active ?? Number.MAX_SAFE_INTEGER) - (b.last_active ?? Number.MAX_SAFE_INTEGER);
+      }
+      return a.path.localeCompare(b.path);
+    });
+  }, [inGroup, toolFilter, typeFilter, safetyFilter, ageFilter, query, sortKey]);
 
   const sections = useMemo(() => {
     if (groupFilter !== 'ALL') return [[groupFilter, visible] as [string, CleanupItem[]]];
@@ -228,7 +239,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
   const safetyCounts = (['SAFE', 'REVIEW', 'DANGER'] as SafetyLevel[]).map(
     s => [s, items.filter(i => i.status === s)] as const,
   );
-  const filtersActive = groupFilter !== 'ALL' || typeFilter !== 'ALL' || safetyFilter !== 'ALL' || toolFilter !== 'ALL' || query !== '';
+  const filtersActive = groupFilter !== 'ALL' || typeFilter !== 'ALL' || safetyFilter !== 'ALL' || toolFilter !== 'ALL' || ageFilter !== 'ALL' || query !== '';
 
   // ----- Actions -------------------------------------------------------------
 
@@ -271,6 +282,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
     setTypeFilter('ALL');
     setSafetyFilter('ALL');
     setToolFilter('ALL');
+    setAgeFilter('ALL');
     setQuery('');
   };
 
@@ -325,6 +337,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
   }
 
   const allVisible = selectionState(visible);
+  const nowMs = Date.now();
 
   return (
     <div className="min-h-full flex flex-col justify-between">
@@ -452,12 +465,25 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
               </select>
             )}
 
+            <select
+              aria-label="Activity"
+              value={ageFilter}
+              onChange={(e) => setAgeFilter(e.target.value)}
+              className="bg-surface border border-outline rounded-lg px-3 py-1.5 text-xs text-on-surface/70 outline-none focus:border-primary/60 shrink-0"
+            >
+              <option value="ALL">Any activity</option>
+              <option value="30">Older than 30 days</option>
+              <option value="90">Older than 90 days</option>
+              <option value="180">Older than 180 days</option>
+              <option value="365">Older than 1 year</option>
+            </select>
+
             <button
-              onClick={() => setSortKey(k => (k === 'size' ? 'name' : 'size'))}
+              onClick={() => setSortKey(k => (k === 'size' ? 'name' : k === 'name' ? 'age' : 'size'))}
               className="flex items-center gap-1.5 px-3 py-1.5 border border-outline rounded-lg text-xs text-on-surface/70 hover:text-on-surface bg-surface shrink-0"
             >
               <ArrowDownWideNarrow className="w-3.5 h-3.5" />
-              {sortKey === 'size' ? 'Largest first' : 'By path'}
+              {sortKey === 'size' ? 'Largest first' : sortKey === 'name' ? 'By path' : 'Oldest active'}
             </button>
 
             {filtersActive && (
@@ -570,6 +596,11 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
                           <p className={`text-xs text-on-surface/60 leading-relaxed ${open ? '' : 'line-clamp-2'}`}>
                             {item.description}
                           </p>
+                          {item.last_active !== null && (
+                            <p className="text-[11px] text-on-surface/45">
+                              Last active: {formatAge(item.last_active, nowMs)}
+                            </p>
+                          )}
                           {item.blocked_by && (
                             <p className="flex items-center gap-1.5 text-xs font-medium text-error">
                               <Lock className="w-3 h-3" /> Close {item.blocked_by} to remove this item.
