@@ -323,6 +323,23 @@ const OTHERS: &[GlobalRule] = &[
         false,
         "Agent transcripts for one project. Cursor also keeps chats in its own database, so some history may remain visible.",
     ),
+    // ----- Trae updates -------------------------------------------------------
+    GlobalRule {
+        note: "A downloaded Trae update waiting to be installed. Trae downloads it again if needed.",
+        ..cache("Trae pending update", "Library/Caches/Trae/pending", &["Trae"])
+    },
+    GlobalRule {
+        note: "The downloaded Trae update archive. Trae downloads it again if needed.",
+        ..cache("Trae update archive", "Library/Caches/Trae/update.zip", &["Trae"])
+    },
+    GlobalRule {
+        note: "Trae app cache. Trae builds it again and downloads updates when needed.",
+        ..cache("Trae App Cache", "Library/Caches/com.trae.app", &["Trae"])
+    },
+    GlobalRule {
+        note: "Trae updater cache. Trae downloads the update again if needed.",
+        ..cache("Trae updater", "Library/Caches/com.trae.app.ShipIt", &["Trae"])
+    },
     // ----- Google Antigravity -------------------------------------------------
     history(
         "Antigravity conversations",
@@ -557,6 +574,8 @@ pub(super) const PROTECTED: &[&str] = &[
     ".antigravity-ide/extensions",
     ".trae",
     ".trae/extensions",
+    ".trae/trae-jwt-token",
+    ".trae/skill-config.json",
     ".vscode",
     ".vscode/extensions",
     ".codex/plugins",
@@ -571,6 +590,11 @@ pub(super) const PROTECTED: &[&str] = &[
     ".continue/config.yaml",
     ".continue/config.json",
     ".cline",
+    ".jan",
+    ".unsloth",
+    ".unsloth/studio",
+    ".unsloth/studio/auth",
+    ".unsloth/studio/studio.db",
     ".deepseek",
     ".deepseek/config.toml",
     ".deepseek/instructions.md",
@@ -586,6 +610,9 @@ pub(super) const PROTECTED: &[&str] = &[
     "Library/Application Support/Claude/vm_bundles/claudevm.bundle/sessiondata.img",
     "Library/Application Support/Claude/claude_desktop_config.json",
     "Library/Application Support/com.openai.chat",
+    "Library/Application Support/Jan/data/threads",
+    "Library/Application Support/Jan/data/assistants",
+    "Library/Application Support/Jan/data/store.json",
     "Library/Application Support/Cursor/User/globalStorage/state.vscdb",
     "Library/Application Support/Code/User/settings.json",
 ];

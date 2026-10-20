@@ -3421,6 +3421,168 @@ mod tests {
         assert!(home.join(".codex/auth.json").exists());
     }
 
+    // ----- Trae updates and Jan models (PLAN 2.19) -----------------------------
+
+    #[test]
+    fn trae_update_caches_are_safe() {
+        let (_d, r) = ai_scan(&[
+            ("Library/Caches/Trae/pending/blob", 5000),
+            ("Library/Caches/Trae/update.zip", 5000),
+            ("Library/Caches/com.trae.app/blob", 5000),
+            ("Library/Caches/com.trae.app.ShipIt/blob", 5000),
+            ("Library/Caches/Trae/other-folder/blob", 5000),
+            ("Library/Application Support/Trae/Cookies/data", 5000),
+            (".trae/trae-jwt-token", 5000),
+        ]);
+
+        for (suffix, label) in [
+            ("Library/Caches/Trae/pending", "Trae pending update"),
+            ("Library/Caches/Trae/update.zip", "Trae update archive"),
+            ("Library/Caches/com.trae.app", "Trae App Cache"),
+            ("Library/Caches/com.trae.app.ShipIt", "Trae updater"),
+        ] {
+            let item = find(&r, suffix).unwrap_or_else(|| panic!("missing {suffix}"));
+            assert_eq!(item.item.status, Safe, "{suffix}");
+            assert_eq!(item.item.file_type, label, "{suffix}");
+            assert_eq!(item.blocked_if_running, vec!["Trae"], "{suffix}");
+            assert!(
+                item.item.description.to_lowercase().contains("download"),
+                "{suffix}: {}",
+                item.item.description
+            );
+        }
+
+        // Negative: the rest of the Trae cache, cookies and the token are never listed.
+        assert!(find(&r, "Library/Caches/Trae/other-folder").is_none());
+        assert!(find(&r, "Application Support/Trae/Cookies").is_none());
+        assert!(find(&r, ".trae/trae-jwt-token").is_none());
+        assert_eq!(r.items.len(), 4, "{:?}", paths(&r));
+    }
+
+    #[test]
+    fn trae_caches_shadow_the_app_cache_catch_all() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        write(
+            &home.join("Library/Caches/Trae/pending/blob"),
+            11 * 1024 * 1024,
+        );
+        write(&home.join("Library/Caches/Trae/update.zip"), 10);
+        write(
+            &home.join("Library/Caches/Unrelated/blob"),
+            11 * 1024 * 1024,
+        );
+
+        let r = scan(d.path(), &["ai_assistants", "os_system"]);
+        // The catch-all item for the whole Trae folder gives way to the specific rows.
+        assert!(find(&r, "Library/Caches/Trae").is_none(), "{:?}", paths(&r));
+        assert!(find(&r, "Library/Caches/Trae/pending").is_some());
+        assert!(find(&r, "Library/Caches/Trae/update.zip").is_some());
+        // The catch-all still lists other apps.
+        let unrelated = find(&r, "Library/Caches/Unrelated").unwrap();
+        assert_eq!(unrelated.item.file_type, "Unrelated");
+        assert_eq!(unrelated.item.category, "System Cache");
+    }
+
+    #[test]
+    fn jan_models_are_review_and_machinery_is_skipped() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().join("__home");
+        let data = home.join("Library/Application Support/Jan/data");
+        write(&data.join("llamacpp/models/llama3/model.yml"), 5000);
+        write(&data.join("llamacpp/models/org/repo/model.gguf"), 5000);
+        write(&data.join("llamacpp/models/local-only/weights.gguf"), 5000);
+        write(&data.join("mlx/models/mlx-community/Qwen/model.yml"), 5000);
+        for rel in [
+            "llamacpp/backends/backend.bin",
+            "llamacpp/settings.json",
+            "llamacpp/router.preset.ini",
+            "threads/t1.json",
+            "assistants/a.json",
+            "extensions/e.js",
+            "files/f.bin",
+            "logs/l.log",
+            "mcp_config.json",
+            "store.json",
+            "db/db.sqlite",
+            "agent-workspace/w.txt",
+        ] {
+            write(&data.join(rel), 5000);
+        }
+        // Negative: ~/.jan is never scanned.
+        write(&home.join(".jan/models/secret/model.yml"), 5000);
+
+        let r = scan(d.path(), &["ai"]);
+        assert_eq!(r.items.len(), 4, "{:?}", paths(&r));
+        for (suffix, name) in [
+            ("Jan/data/llamacpp/models/llama3", "llama3"),
+            ("Jan/data/llamacpp/models/org/repo", "org/repo"),
+            ("Jan/data/llamacpp/models/local-only", "local-only"),
+            ("Jan/data/mlx/models/mlx-community/Qwen", "mlx-community/Qwen"),
+        ] {
+            let item = find(&r, suffix).unwrap_or_else(|| panic!("missing {suffix}"));
+            assert_eq!(item.item.file_type, "Jan Models", "{suffix}");
+            assert_eq!(item.item.status, Review, "{suffix}");
+            assert_eq!(item.blocked_if_running, vec!["Jan"], "{suffix}");
+            assert!(
+                item.item.description.starts_with(&format!("{name}: ")),
+                "{suffix}: {}",
+                item.item.description
+            );
+        }
+        for suffix in [
+            "Jan/data/llamacpp/backends",
+            "Jan/data/llamacpp/models/org",
+            "Jan/data/threads",
+            "Jan/data/assistants",
+            "Jan/data/store.json",
+            "Jan/data/llamacpp/settings.json",
+            "Jan/data/llamacpp/router.preset.ini",
+            ".jan",
+        ] {
+            assert!(find(&r, suffix).is_none(), "{suffix} was listed");
+        }
+    }
+
+    #[test]
+    fn jan_missing_folder_gives_no_items() {
+        let d = TempDir::new().unwrap();
+        let r = scan(d.path(), &["ai"]);
+        assert!(r.items.is_empty(), "{:?}", paths(&r));
+    }
+
+    #[test]
+    fn protected_jan_trae_and_unsloth_paths_are_refused() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let home = root.join("home");
+        for rel in [
+            ".trae/trae-jwt-token",
+            ".unsloth/studio/studio.db",
+            "Library/Application Support/Jan/data/threads/t1.json",
+        ] {
+            write(&home.join(rel), 10);
+        }
+        let protected = protected_paths(&home);
+        let roots = vec![home.clone()];
+
+        for rel in [
+            ".trae/trae-jwt-token",
+            ".unsloth/studio/studio.db",
+            "Library/Application Support/Jan/data/threads",
+        ] {
+            assert!(
+                delete_permanently(&scanned(&home.join(rel)), &roots, &protected).is_err(),
+                "{rel} was not protected"
+            );
+        }
+        assert!(home.join(".trae/trae-jwt-token").exists());
+        assert!(home.join(".unsloth/studio/studio.db").exists());
+        assert!(home
+            .join("Library/Application Support/Jan/data/threads/t1.json")
+            .exists());
+    }
+
     // ----- Old extensions and versions -----------------------------------------
 
     #[test]

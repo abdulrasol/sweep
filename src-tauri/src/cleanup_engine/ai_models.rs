@@ -7,7 +7,7 @@ use super::native_commands::{self, NativeCommand};
 use super::{Action, Candidate, Env, Safety};
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const PROTECTED: &[&str] = &[
     ".cache/huggingface/token",
@@ -27,6 +27,7 @@ pub(super) fn collect(env: &Env, enabled: &HashSet<&str>, out: &mut Vec<Candidat
     collect_huggingface_hub(&env.home, out);
     collect_huggingface_extra(&env.home, out);
     collect_lm_studio(&env.home, out);
+    collect_jan(&env.home, out);
     collect_ollama(&env.home, out);
 }
 
@@ -178,6 +179,104 @@ fn collect_lm_studio(home: &Path, out: &mut Vec<Candidate>) {
             }
         }
     }
+}
+
+/// Jan keeps its model catalog under one of these data folders (PLAN 2.19).
+/// The existence of each root decides whether it is searched.
+const JAN_ROOTS: [&str; 3] = [
+    "Library/Application Support/Jan/data",
+    ".local/share/Jan/data",
+    "AppData/Roaming/Jan/data",
+];
+
+fn collect_jan(home: &Path, out: &mut Vec<Candidate>) {
+    for root in JAN_ROOTS {
+        let data = home.join(root);
+        if !super::is_real_dir(&data) {
+            continue;
+        }
+        for backend in ["llamacpp/models", "mlx/models"] {
+            let models = data.join(backend);
+            if !super::is_real_dir(&models) {
+                continue;
+            }
+            collect_jan_models(&models, out);
+        }
+    }
+}
+
+/// One item per model directory at depth 1 or 2 below `models`. A directory that
+/// qualifies as a model hides its children, so a model is never listed with its parent.
+fn collect_jan_models(models: &Path, out: &mut Vec<Candidate>) {
+    let Ok(level1) = fs::read_dir(models) else {
+        return;
+    };
+    for entry in level1.flatten() {
+        let path = entry.path();
+        if !super::is_real_dir(&path) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        if is_jan_model(&path) {
+            push_jan_model(path, &name, out);
+            continue;
+        }
+        let Ok(level2) = fs::read_dir(&path) else {
+            continue;
+        };
+        for child in level2.flatten() {
+            let child_path = child.path();
+            if !super::is_real_dir(&child_path) {
+                continue;
+            }
+            let child_name = child.file_name().to_string_lossy().into_owned();
+            if child_name.starts_with('.') {
+                continue;
+            }
+            if is_jan_model(&child_path) {
+                push_jan_model(child_path, &format!("{name}/{child_name}"), out);
+            }
+        }
+    }
+}
+
+/// A Jan model folder directly contains `model.yml` or at least one `.gguf` file.
+fn is_jan_model(dir: &Path) -> bool {
+    if dir.join("model.yml").is_file() {
+        return true;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        entry.file_type().map(|t| t.is_file()).unwrap_or(false)
+            && entry
+                .path()
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("gguf"))
+    })
+}
+
+fn push_jan_model(path: PathBuf, name: &str, out: &mut Vec<Candidate>) {
+    out.push(Candidate {
+        path,
+        file_type: "Jan Models".to_string(),
+        category: "AI Model Cache".to_string(),
+        safety: Safety::Review,
+        description: format!(
+            "{name}: a model downloaded in Jan. Downloaded again from the catalog when you need it. Models you imported yourself cannot be downloaded again."
+        ),
+        blocked_if_running: vec!["Jan"],
+        project_root: None,
+        action: Action::DeletePath,
+        known_size: None,
+        min_bytes: 1,
+        group: "AI Tools",
+        catch_all: false,
+    });
 }
 
 #[derive(serde::Deserialize)]
