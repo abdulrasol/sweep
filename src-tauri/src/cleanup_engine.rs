@@ -160,6 +160,14 @@ pub struct ScanHooks<'a> {
     pub progress: &'a (dyn Fn(ScanProgress) + Sync),
 }
 
+/// Optional scan settings. `Default` keeps the previous behaviour.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScanOptions {
+    /// How many folder levels below the projects folder the walk visits.
+    /// `None` uses [`MAX_DEPTH`]; values are clamped to `2..=12`.
+    pub max_depth: Option<usize>,
+}
+
 // ---------------------------------------------------------------------------
 // Rules
 // ---------------------------------------------------------------------------
@@ -1597,11 +1605,17 @@ const SKIP_DIRS: &[&str] = &[
     "Intermediate",
     "__pycache__",
     ".pnpm-store",
+    // Nuxt's generated build output; like `.next`, never holds a project of its own.
+    ".nuxt",
     "Library",
     ".Trash",
 ];
 
+/// Default depth of the project walk (PLAN 3.4). User choices are clamped to
+/// `MIN_DEPTH..=MAX_DEPTH`.
 const MAX_DEPTH: usize = 8;
+const MIN_DEPTH: usize = 2;
+const MAX_DEPTH_LIMIT: usize = 12;
 /// Children of split global folders smaller than this are not worth listing.
 const MIN_SPLIT_CHILD_BYTES: u64 = 10 * 1024 * 1024;
 
@@ -1667,6 +1681,31 @@ pub fn scan_directory_with(
     running: &HashSet<String>,
     hooks: &ScanHooks<'_>,
 ) -> Option<ScanResult> {
+    scan_directory_with_options(
+        base_path,
+        enabled_modules,
+        ignored_paths,
+        env,
+        running,
+        hooks,
+        ScanOptions::default(),
+    )
+}
+
+/// Like [`scan_directory_with`], with caller-provided scan options.
+pub fn scan_directory_with_options(
+    base_path: &Path,
+    enabled_modules: &[String],
+    ignored_paths: &[String],
+    env: &Env,
+    running: &HashSet<String>,
+    hooks: &ScanHooks<'_>,
+    options: ScanOptions,
+) -> Option<ScanResult> {
+    let max_depth = options
+        .max_depth
+        .unwrap_or(MAX_DEPTH)
+        .clamp(MIN_DEPTH, MAX_DEPTH_LIMIT);
     let enabled: HashSet<&str> = enabled_modules.iter().map(String::as_str).collect();
     let ignored: Vec<PathBuf> = ignored_paths.iter().map(PathBuf::from).collect();
     let is_ignored = |p: &Path| ignored.iter().any(|i| p.starts_with(i));
@@ -1738,7 +1777,14 @@ pub fn scan_directory_with(
     (hooks.progress)(ScanProgress::Phase {
         label: "Searching your projects".to_string(),
     });
-    collect_projects(base_path, &enabled, &is_ignored, &mut candidates, hooks);
+    collect_projects(
+        base_path,
+        &enabled,
+        &is_ignored,
+        &mut candidates,
+        hooks,
+        max_depth,
+    );
     if (hooks.cancelled)() {
         return None;
     }
@@ -1753,22 +1799,19 @@ pub fn scan_directory_with(
 
     // Project activity is identical for every item of a project, so it is
     // computed once per distinct root before the parallel sizing stage.
-    let mut activity: HashMap<PathBuf, Option<i64>> = HashMap::new();
-    for candidate in &candidates {
-        let Some(root) = &candidate.project_root else {
-            continue;
-        };
-        if activity.contains_key(root) {
-            continue;
-        }
-        if (hooks.cancelled)() {
-            return None;
-        }
-        activity.insert(
-            root.clone(),
-            age::project_last_active(root, hooks.cancelled),
-        );
-    }
+    let roots: HashSet<&PathBuf> = candidates
+        .iter()
+        .filter_map(|candidate| candidate.project_root.as_ref())
+        .collect();
+    let activity: HashMap<PathBuf, Option<i64>> = roots
+        .into_par_iter()
+        .map(|root| {
+            (
+                root.clone(),
+                age::project_last_active(root, hooks.cancelled),
+            )
+        })
+        .collect();
 
     (hooks.progress)(ScanProgress::Phase {
         label: "Measuring sizes".to_string(),
@@ -1969,9 +2012,10 @@ fn describe_global(rule: &GlobalRule) -> String {
 fn collect_projects(
     base: &Path,
     enabled: &HashSet<&str>,
-    is_ignored: &dyn Fn(&Path) -> bool,
+    is_ignored: &(dyn Fn(&Path) -> bool + Sync),
     out: &mut Vec<Candidate>,
     hooks: &ScanHooks<'_>,
+    max_depth: usize,
 ) {
     let rules: Vec<&ProjectRule> = PROJECT_RULES
         .iter()
@@ -1981,81 +2025,142 @@ fn collect_projects(
         return;
     }
 
-    let walker = WalkDir::new(base)
-        .max_depth(MAX_DEPTH)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|e| {
-            if !e.file_type().is_dir() {
-                return false;
+    let found = Mutex::new(Vec::new());
+    let last_path = Mutex::new(None::<Instant>);
+    walk_projects(
+        base,
+        0,
+        max_depth,
+        &rules,
+        is_ignored,
+        hooks,
+        &found,
+        &last_path,
+    );
+
+    // Tasks finish in any order; sort so the candidates (and therefore the
+    // output for equal sizes) do not depend on the thread schedule.
+    let mut found = found.into_inner().unwrap_or_else(|e| e.into_inner());
+    found.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then_with(|| a.module.cmp(b.module))
+            .then_with(|| a.file_type.cmp(&b.file_type))
+    });
+    out.extend(found);
+}
+
+/// One directory of the parallel project walk. `depth` is the distance from
+/// the scan root, which is depth 0, matching the old `WalkDir::max_depth`.
+#[allow(clippy::too_many_arguments)]
+fn walk_projects(
+    dir: &Path,
+    depth: usize,
+    max_depth: usize,
+    rules: &[&ProjectRule],
+    is_ignored: &(dyn Fn(&Path) -> bool + Sync),
+    hooks: &ScanHooks<'_>,
+    found: &Mutex<Vec<Candidate>>,
+    last_path: &Mutex<Option<Instant>>,
+) {
+    if (hooks.cancelled)() {
+        return;
+    }
+
+    let report = match last_path.lock() {
+        Ok(mut last) => {
+            if last.is_none_or(|t| t.elapsed() >= Duration::from_millis(100)) {
+                *last = Some(Instant::now());
+                true
+            } else {
+                false
             }
-            if e.depth() == 0 {
-                return true;
-            }
-            let name = e.file_name().to_string_lossy();
-            !SKIP_DIRS.contains(&name.as_ref()) && !is_ignored(e.path())
+        }
+        Err(_) => true,
+    };
+    if report {
+        (hooks.progress)(ScanProgress::Path {
+            path: dir.to_string_lossy().into_owned(),
         });
+    }
 
-    let mut last_path: Option<Instant> = None;
-    for entry in walker.flatten() {
-        if (hooks.cancelled)() {
-            break;
+    let Ok(read_dir) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut names: HashSet<OsString> = HashSet::new();
+    let mut children: Vec<PathBuf> = Vec::new();
+    for entry in read_dir.flatten() {
+        let name = entry.file_name();
+        if depth < max_depth
+            && entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
+            && !SKIP_DIRS.contains(&name.to_string_lossy().as_ref())
+            && !is_ignored(&entry.path())
+        {
+            children.push(entry.path());
         }
-        let report = last_path.is_none_or(|t| t.elapsed() >= Duration::from_millis(100));
-        if report {
-            (hooks.progress)(ScanProgress::Path {
-                path: entry.path().to_string_lossy().into_owned(),
-            });
-            last_path = Some(Instant::now());
-        }
-        let dir = entry.path();
-        let Ok(rd) = fs::read_dir(dir) else { continue };
-        let names: HashSet<OsString> = rd.flatten().map(|e| e.file_name()).collect();
+        names.insert(name);
+    }
 
-        for rule in &rules {
-            if !rule.markers.iter().any(|m| marker_matches(dir, &names, m)) {
-                continue;
-            }
-            for target in rule.targets {
-                for path in expand(dir, target.rel) {
-                    if fs::symlink_metadata(&path).is_err() {
+    let mut local = Vec::new();
+    for rule in rules {
+        if !rule.markers.iter().any(|m| marker_matches(dir, &names, m)) {
+            continue;
+        }
+        for target in rule.targets {
+            for path in expand(dir, target.rel) {
+                if fs::symlink_metadata(&path).is_err() {
+                    continue;
+                }
+                if !target.needs.is_empty() {
+                    let ok = is_real_dir(&path)
+                        && fs::symlink_metadata(path.join(target.needs))
+                            .map(|m| m.is_file())
+                            .unwrap_or(false);
+                    if !ok {
                         continue;
                     }
-                    if !target.needs.is_empty() {
-                        let ok = is_real_dir(&path)
-                            && fs::symlink_metadata(path.join(target.needs))
-                                .map(|m| m.is_file())
-                                .unwrap_or(false);
-                        if !ok {
-                            continue;
-                        }
-                    }
-                    let project = dir
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    out.push(Candidate {
-                        path,
-                        file_type: rule.name.to_string(),
-                        category: rule.label.to_string(),
-                        safety: target.safety,
-                        description: format!(
-                            "{} in project \"{}\" ({}). Regenerated by the next build or install.",
-                            target.rel, project, rule.name
-                        ),
-                        blocked_if_running: rule.blocked_if_running.to_vec(),
-                        project_root: Some(dir.to_path_buf()),
-                        action: Action::DeletePath,
-                        known_size: None,
-                        min_bytes: 1,
-                        group: "Projects",
-                        module: rule.module,
-                        catch_all: false,
-                    });
                 }
+                let project = dir
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                local.push(Candidate {
+                    path,
+                    file_type: rule.name.to_string(),
+                    category: rule.label.to_string(),
+                    safety: target.safety,
+                    description: format!(
+                        "{} in project \"{}\" ({}). Regenerated by the next build or install.",
+                        target.rel, project, rule.name
+                    ),
+                    blocked_if_running: rule.blocked_if_running.to_vec(),
+                    project_root: Some(dir.to_path_buf()),
+                    action: Action::DeletePath,
+                    known_size: None,
+                    min_bytes: 1,
+                    group: "Projects",
+                    module: rule.module,
+                    catch_all: false,
+                });
             }
         }
     }
+    if !local.is_empty() {
+        found.lock().unwrap_or_else(|e| e.into_inner()).extend(local);
+    }
+
+    children.par_iter().for_each(|child| {
+        walk_projects(
+            child,
+            depth + 1,
+            max_depth,
+            rules,
+            is_ignored,
+            hooks,
+            found,
+            last_path,
+        );
+    });
 }
 
 fn marker_matches(dir: &Path, names: &HashSet<OsString>, marker: &str) -> bool {
@@ -4580,7 +4685,7 @@ mod tests {
             .any(|p| p.ends_with("Library/Application Support/JetBrains")));
         let app_support_item =
             scanned(&home.join("Library/Application Support/JetBrains/IntelliJIdea2023.1"));
-        assert!(delete_permanently(&app_support_item, &[home.clone()], &protected).is_err());
+        assert!(delete_permanently(&app_support_item, std::slice::from_ref(&home), &protected).is_err());
     }
 
     #[test]
@@ -6378,5 +6483,626 @@ rm -f "{blob_str}""#
         assert!(partial > 0);
         assert!(partial < full, "partial {partial} is not below full {full}");
         assert_eq!(disk_usage_cancellable(&dir, &|| false), full);
+    }
+
+    // ----- Parallel project walk (PLAN 3.4) ----------------------------------
+
+    fn walk_project_candidates(
+        base: &Path,
+        modules: &[&str],
+        max_depth: Option<usize>,
+    ) -> Vec<String> {
+        let enabled_modules: Vec<String> = modules.iter().map(|s| s.to_string()).collect();
+        let enabled: HashSet<&str> = enabled_modules.iter().map(String::as_str).collect();
+        let is_ignored = |_: &Path| false;
+        let cancelled = || false;
+        let progress = |_: ScanProgress| {};
+        let hooks = ScanHooks {
+            cancelled: &cancelled,
+            progress: &progress,
+        };
+        let depth = max_depth
+            .unwrap_or(MAX_DEPTH)
+            .clamp(MIN_DEPTH, MAX_DEPTH_LIMIT);
+        let mut out = Vec::new();
+        collect_projects(base, &enabled, &is_ignored, &mut out, &hooks, depth);
+        let mut paths: Vec<String> = out
+            .iter()
+            .map(|c| c.path.to_string_lossy().into_owned())
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    /// Small sequential version of the walk, used as the reference.
+    fn reference_candidates(base: &Path, modules: &[&str], max_depth: usize) -> Vec<String> {
+        let rules: Vec<&ProjectRule> = PROJECT_RULES
+            .iter()
+            .filter(|r| modules.contains(&r.module))
+            .collect();
+        let walker = WalkDir::new(base)
+            .max_depth(max_depth)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|e| {
+                if !e.file_type().is_dir() {
+                    return false;
+                }
+                if e.depth() == 0 {
+                    return true;
+                }
+                let name = e.file_name().to_string_lossy();
+                !SKIP_DIRS.contains(&name.as_ref())
+            });
+        let mut out = Vec::new();
+        for entry in walker.flatten() {
+            let dir = entry.path();
+            let Ok(rd) = fs::read_dir(dir) else { continue };
+            let names: HashSet<OsString> = rd.flatten().map(|e| e.file_name()).collect();
+            for rule in &rules {
+                if !rule.markers.iter().any(|m| marker_matches(dir, &names, m)) {
+                    continue;
+                }
+                for target in rule.targets {
+                    for path in expand(dir, target.rel) {
+                        if fs::symlink_metadata(&path).is_ok() {
+                            out.push(path.to_string_lossy().into_owned());
+                        }
+                    }
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    fn build_mixed_tree(base: &Path) {
+        for i in 0..30 {
+            let root = base.join(format!("group{}/nested{}/project{i}", i % 3, i % 4));
+            match i % 5 {
+                0 => {
+                    write(&root.join("pubspec.yaml"), 10);
+                    write(&root.join("build/out.bin"), 5000);
+                }
+                1 => {
+                    write(&root.join("package.json"), 10);
+                    write(&root.join("node_modules/pkg/index.js"), 5000);
+                }
+                2 => {
+                    write(&root.join("Cargo.toml"), 10);
+                    write(&root.join("target/debug/app"), 5000);
+                }
+                3 => {
+                    write(&root.join("requirements.txt"), 10);
+                    write(&root.join("__pycache__/mod.pyc"), 5000);
+                }
+                _ => {
+                    write(&root.join("composer.json"), 10);
+                    write(&root.join("vendor/pkg/file.php"), 5000);
+                }
+            }
+        }
+    }
+
+    const ALL_PROJECT_MODULES: &[&str] = &[
+        "flutter",
+        "node",
+        "rust",
+        "rust_incremental",
+        "php",
+        "python",
+        "python_venv",
+        "android",
+        "dotnet",
+        "ruby",
+        "cpp",
+        "unreal",
+        "unity",
+        "ai_assistants",
+    ];
+
+    #[test]
+    fn parallel_walk_matches_the_sequential_reference() {
+        let d = TempDir::new().unwrap();
+        build_mixed_tree(d.path());
+
+        let parallel = walk_project_candidates(d.path(), ALL_PROJECT_MODULES, None);
+        let sequential = reference_candidates(d.path(), ALL_PROJECT_MODULES, MAX_DEPTH);
+
+        assert_eq!(parallel.len(), sequential.len(), "candidate count differs");
+        assert_eq!(parallel, sequential);
+        assert!(parallel.len() >= 30, "only {} candidates", parallel.len());
+    }
+
+    #[test]
+    fn parallel_walk_is_deterministic() {
+        let d = TempDir::new().unwrap();
+        build_mixed_tree(d.path());
+
+        let first = walk_project_candidates(d.path(), ALL_PROJECT_MODULES, None);
+        for _ in 0..4 {
+            assert_eq!(walk_project_candidates(d.path(), ALL_PROJECT_MODULES, None), first);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parallel_walk_does_not_follow_symlinked_directories() {
+        use std::os::unix::fs::symlink;
+
+        let d = TempDir::new().unwrap();
+        let base = d.path().join("base");
+        let outside = d.path().join("outside");
+        write(&outside.join("package.json"), 10);
+        write(&outside.join("node_modules/pkg/index.js"), 5000);
+        fs::create_dir_all(&base).unwrap();
+        symlink(&outside, base.join("linked")).unwrap();
+
+        assert!(walk_project_candidates(&base, &["node"], None).is_empty());
+    }
+
+    #[test]
+    fn parallel_walk_stops_when_cancelled_from_progress() {
+        use std::sync::atomic::AtomicBool;
+
+        let d = TempDir::new().unwrap();
+        let base = d.path().join("base");
+        write(&base.join("project/package.json"), 10);
+        write(&base.join("project/node_modules/pkg/index.js"), 5000);
+
+        let enabled_modules = ["node".to_string()];
+        let enabled: HashSet<&str> = enabled_modules.iter().map(String::as_str).collect();
+        let is_ignored = |_: &Path| false;
+        let flag = AtomicBool::new(false);
+        let cancelled = || flag.load(Ordering::Relaxed);
+        let progress = |event: ScanProgress| {
+            if matches!(event, ScanProgress::Path { .. }) {
+                flag.store(true, Ordering::Relaxed);
+            }
+        };
+        let hooks = ScanHooks {
+            cancelled: &cancelled,
+            progress: &progress,
+        };
+        let mut out = Vec::new();
+        collect_projects(&base, &enabled, &is_ignored, &mut out, &hooks, MAX_DEPTH);
+
+        assert!(out.is_empty(), "walk kept going after cancellation");
+    }
+
+    #[test]
+    fn max_depth_limits_the_walk() {
+        let d = TempDir::new().unwrap();
+        let base = d.path().join("base");
+        let project = base.join("a/b/project");
+        write(&project.join("package.json"), 10);
+        write(&project.join("node_modules/pkg/index.js"), 5000);
+
+        let deep = walk_project_candidates(&base, &["node"], Some(4));
+        assert!(deep.iter().any(|p| p.ends_with("b/project/node_modules")));
+        assert!(walk_project_candidates(&base, &["node"], Some(2)).is_empty());
+    }
+
+    #[test]
+    fn none_depth_behaves_like_the_default() {
+        let d = TempDir::new().unwrap();
+        let base = d.path().join("base");
+        let project = base.join("l1/l2/l3/l4/l5/l6/l7/project");
+        write(&project.join("package.json"), 10);
+        write(&project.join("node_modules/pkg/index.js"), 5000);
+
+        let found = walk_project_candidates(&base, &["node"], None);
+        assert_eq!(found, walk_project_candidates(&base, &["node"], Some(8)));
+        assert!(found.iter().any(|p| p.ends_with("project/node_modules")));
+    }
+
+    #[test]
+    fn generated_folders_are_not_searched_for_nested_projects() {
+        let d = TempDir::new().unwrap();
+        let base = d.path().join("base");
+        let app = base.join("app");
+        write(&app.join("pubspec.yaml"), 10);
+        write(&app.join("build/out.bin"), 5000);
+        write(&app.join("ios/Pods/nested/package.json"), 10);
+        write(&app.join("ios/Pods/nested/node_modules/pkg/index.js"), 5000);
+        write(&app.join("vendor/nested/package.json"), 10);
+        write(&app.join("vendor/nested/node_modules/pkg/index.js"), 5000);
+        write(&app.join(".nuxt/nested/package.json"), 10);
+        write(&app.join(".nuxt/nested/node_modules/pkg/index.js"), 5000);
+
+        let found = walk_project_candidates(&base, &["flutter", "node"], None);
+        assert!(found.iter().any(|p| p.ends_with("app/build")));
+        assert!(found.iter().any(|p| p.ends_with("app/ios/Pods")));
+        assert!(!found.iter().any(|p| p.contains("Pods/nested")));
+        assert!(!found.iter().any(|p| p.contains("vendor/nested")));
+        assert!(!found.iter().any(|p| p.contains(".nuxt/")));
+    }
+
+    /// Manual benchmark for the project walk (PLAN 3.4). It is ignored by
+    /// default because it reads a real folder supplied through the
+    /// `SWEEP_BENCH_DIR` environment variable.
+    #[test]
+    #[ignore]
+    fn bench_project_scan() {
+        let Ok(dir) = std::env::var("SWEEP_BENCH_DIR") else {
+            println!("bench_project_scan skipped: set SWEEP_BENCH_DIR to a folder to scan");
+            return;
+        };
+        let base = PathBuf::from(dir);
+        let home = TempDir::new().unwrap();
+        let env = Env {
+            home: home.path().to_path_buf(),
+        };
+        let modules: Vec<String> = PROJECT_RULES
+            .iter()
+            .map(|r| r.module.to_string())
+            .collect();
+        // Phase events are timestamped relative to the start of the current run.
+        let phases: Mutex<Vec<(String, Duration)>> = Mutex::new(Vec::new());
+        let run_start = Mutex::new(Instant::now());
+        let cancelled = || false;
+        let progress = |event: ScanProgress| {
+            let label = match event {
+                ScanProgress::Phase { label } => label,
+                ScanProgress::Measuring { .. } => "first Measuring event".to_string(),
+                ScanProgress::Path { .. } => return,
+            };
+            let since_start = run_start.lock().map(|t| t.elapsed()).unwrap_or_default();
+            if let Ok(mut v) = phases.lock() {
+                // Only the first "Measuring" event marks the start of that stage.
+                if v.iter().any(|(l, _)| l == &label) {
+                    return;
+                }
+                v.push((label, since_start));
+            }
+        };
+        let hooks = ScanHooks {
+            cancelled: &cancelled,
+            progress: &progress,
+        };
+
+        let mut durations = Vec::new();
+        for run in 1..=3 {
+            phases.lock().unwrap().clear();
+            let started = Instant::now();
+            *run_start.lock().unwrap() = started;
+            let result = scan_directory_with(&base, &modules, &[], &env, &HashSet::new(), &hooks)
+                .expect("benchmark scan was cancelled");
+            let total = started.elapsed();
+            println!("bench project scan run {run}: {total:?}");
+            durations.push(total);
+
+            // Timestamps of the phase boundaries, in the order they happened.
+            let pts = phases.lock().unwrap().clone();
+            let at = |label: &str| pts.iter().find(|(l, _)| l == label).map(|(_, d)| *d);
+            let tools = at("Checking installed tools").unwrap_or_default();
+            let search = at("Searching your projects").unwrap_or_default();
+            let measure = at("Measuring sizes").unwrap_or_default();
+            println!("  phases (run {run}):");
+            println!("    Checking installed tools: {tools:?} (ends at {search:?})");
+            println!("    Searching your projects:  {search:?} -> {measure:?} = {:?}", measure.saturating_sub(search));
+            println!("    Measuring sizes:         {measure:?} -> end = {:?}", total.saturating_sub(measure));
+            println!("    total: {total:?}");
+            for (label, dt) in pts.iter() {
+                println!("      mark {label} at {dt:?}");
+            }
+
+            if let Ok(out) = std::env::var("SWEEP_BENCH_OUT") {
+                let mut items: Vec<String> =
+                    result.items.iter().map(|i| i.item.path.clone()).collect();
+                items.sort();
+                fs::write(&out, items.join("\n")).unwrap();
+            }
+        }
+        durations.sort();
+        println!("bench project scan median: {:?}", durations[1]);
+    }
+
+    /// Benchmark the individual phases of the project scan (PLAN 3.4). Ignored;
+    /// reads the folder from SWEEP_BENCH_DIR and uses a fresh temp home.
+    #[test]
+    #[ignore]
+    fn bench_project_phases() {
+        let Ok(dir) = std::env::var("SWEEP_BENCH_DIR") else {
+            println!("bench_project_phases skipped: set SWEEP_BENCH_DIR to a folder to scan");
+            return;
+        };
+        let base = PathBuf::from(dir);
+        // Fresh temp home, so no global rule can ever match.
+        let _home = TempDir::new().unwrap();
+        let modules: Vec<String> = PROJECT_RULES
+            .iter()
+            .map(|r| r.module.to_string())
+            .collect();
+        let enabled_set: HashSet<&str> = modules.iter().map(String::as_str).collect();
+
+        fn progress_dummy(_: ScanProgress) {}
+        fn cancelled_dummy() -> bool {
+            false
+        }
+        let cancelled = cancelled_dummy;
+        let hooks = ScanHooks {
+            cancelled: &cancelled,
+            progress: &progress_dummy,
+        };
+
+        // One walk to learn the candidate set and the project roots.
+        let mut raw_candidates = Vec::new();
+        collect_projects(
+            &base,
+            &enabled_set,
+            &|_: &Path| false,
+            &mut raw_candidates,
+            &hooks,
+            MAX_DEPTH,
+        );
+        let n_candidates = raw_candidates.len();
+
+        // The same filter pipeline the real scan uses after the walk.
+        let candidates = drop_git_tracked(raw_candidates);
+        let candidates = drop_shadowed_catch_alls(candidates);
+        let candidates = drop_nested(candidates);
+        let n_after_filter = candidates.len();
+
+        // Distinct project roots of the surviving candidates.
+        let roots: HashSet<&PathBuf> = candidates
+            .iter()
+            .filter_map(|c| c.project_root.as_ref())
+            .collect();
+        let n_roots = roots.len();
+
+        // How many directories the walk has to visit, and how many of them are
+        // skipped. This is the work the walk has to parallelise.
+        let mut dirs_total = 0usize;
+        let mut dirs_skipped = 0usize;
+        for entry in WalkDir::new(&base)
+            .max_depth(MAX_DEPTH)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|e| {
+                if !e.file_type().is_dir() {
+                    return false;
+                }
+                if e.depth() == 0 {
+                    return true;
+                }
+                let name = e.file_name().to_string_lossy();
+                if SKIP_DIRS.contains(&name.as_ref()) {
+                    dirs_skipped += 1;
+                    return false;
+                }
+                true
+            })
+            .flatten()
+        {
+            if fs::read_dir(entry.path()).is_ok() {
+                dirs_total += 1;
+            }
+        }
+
+        // The floor of the walk: only enumerate the directories and build the
+        // name sets, with no marker matching and no target expansion. This is
+        // the part that cannot be avoided by any algorithm.
+        let floor_start = Instant::now();
+        let mut floor_entries = 0usize;
+        fn enumerate(
+            dir: &Path,
+            depth: usize,
+            max_depth: usize,
+            entries: &mut usize,
+        ) {
+            let Ok(read_dir) = fs::read_dir(dir) else {
+                return;
+            };
+            let mut names: HashSet<OsString> = HashSet::new();
+            let mut children: Vec<PathBuf> = Vec::new();
+            for entry in read_dir.flatten() {
+                let name = entry.file_name();
+                *entries += 1;
+                if depth < max_depth
+                    && entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                    && !SKIP_DIRS.contains(&name.to_string_lossy().as_ref())
+                {
+                    children.push(entry.path());
+                }
+                names.insert(name);
+            }
+            for child in children {
+                enumerate(&child, depth + 1, max_depth, entries);
+            }
+        }
+        enumerate(&base, 0, MAX_DEPTH, &mut floor_entries);
+        let floor_elapsed = floor_start.elapsed();
+
+        // The raw syscall floor: read_dir and nothing else. No name sets, no
+        // file_type checks, no rule matching.
+        let raw_start = Instant::now();
+        let mut raw_entries = 0usize;
+        fn raw_enumerate(dir: &Path, depth: usize, max_depth: usize, entries: &mut usize) {
+            let Ok(read_dir) = fs::read_dir(dir) else {
+                return;
+            };
+            let mut children: Vec<PathBuf> = Vec::new();
+            for entry in read_dir.flatten() {
+                *entries += 1;
+                if depth < max_depth
+                    && entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                    && !SKIP_DIRS.contains(&entry.file_name().to_string_lossy().as_ref())
+                {
+                    children.push(entry.path());
+                }
+            }
+            for child in children {
+                raw_enumerate(&child, depth + 1, max_depth, entries);
+            }
+        }
+        raw_enumerate(&base, 0, MAX_DEPTH, &mut raw_entries);
+        let raw_elapsed = raw_start.elapsed();
+
+        let mut collect_times: Vec<Duration> = Vec::new();
+        let mut collect_seq_times: Vec<Duration> = Vec::new();
+        let mut drop_times: Vec<Duration> = Vec::new();
+        let mut age_times: Vec<Duration> = Vec::new();
+        let mut age_seq_times: Vec<Duration> = Vec::new();
+        let mut size_times: Vec<Duration> = Vec::new();
+        let mut slowest: Vec<(u64, Duration, String)> = Vec::new();
+        let mut last_sum: Duration = Duration::ZERO;
+        let mut last_size_wall: Duration = Duration::ZERO;
+
+        for run in 1..=3 {
+            // (a) the walk on its own.
+            let mut walk_candidates = Vec::new();
+            let started = Instant::now();
+            collect_projects(
+                &base,
+                &enabled_set,
+                &|_: &Path| false,
+                &mut walk_candidates,
+                &hooks,
+                MAX_DEPTH,
+            );
+            let collect_elapsed = started.elapsed();
+            collect_times.push(collect_elapsed);
+
+            // The same walk with a single worker, to show what the parallel
+            // walk actually buys on this tree.
+            let one_thread = rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
+                .build()
+                .unwrap();
+            let mut seq_candidates = Vec::new();
+            let seq_started = Instant::now();
+            one_thread.install(|| {
+                collect_projects(
+                    &base,
+                    &enabled_set,
+                    &|_: &Path| false,
+                    &mut seq_candidates,
+                    &hooks,
+                    MAX_DEPTH,
+                );
+            });
+            collect_seq_times.push(seq_started.elapsed());
+
+            // The activity pass with a single worker, to show what the
+            // parallel activity pass buys.
+            let mut age_seq = Vec::new();
+            let age_seq_started = Instant::now();
+            for root in roots.iter().copied() {
+                age_seq.push(age::project_last_active(root, &cancelled_dummy));
+            }
+            age_seq_times.push(age_seq_started.elapsed());
+            let _ = age_seq;
+
+            // The drop pipeline (git-tracked, shadowed catch-alls, nested).
+            let drop_started = Instant::now();
+            let dropped = drop_git_tracked(walk_candidates);
+            let dropped = drop_shadowed_catch_alls(dropped);
+            let dropped = drop_nested(dropped);
+            drop_times.push(drop_started.elapsed());
+            let _ = dropped.len();
+
+            // (b) the activity pass over the distinct roots.
+            let started = Instant::now();
+            let activity: Vec<Option<i64>> = roots
+                .iter()
+                .copied()
+                .collect::<Vec<&PathBuf>>()
+                .into_par_iter()
+                .map(|root| age::project_last_active(root, &cancelled_dummy))
+                .collect();
+            let age_elapsed = started.elapsed();
+            age_times.push(age_elapsed);
+
+            // (c) the sizing stage.
+            let started = Instant::now();
+            let mut measured: Vec<(u64, Duration, String)> = candidates
+                .par_iter()
+                .map(|c| {
+                    let item_started = Instant::now();
+                    let bytes = disk_usage_cancellable(&c.path, &cancelled_dummy);
+                    let elapsed = item_started.elapsed();
+                    (bytes, elapsed, c.path.to_string_lossy().into_owned())
+                })
+                .collect();
+            let size_elapsed = started.elapsed();
+            size_times.push(size_elapsed);
+
+            let sum: Duration = measured.iter().map(|(_, d, _)| *d).sum();
+            let with_activity = activity.iter().filter(|a| a.is_some()).count();
+            println!(
+                "bench project phases run {run}: collect={collect_elapsed:?} age={age_elapsed:?} \
+                 size={size_elapsed:?} (roots with activity {with_activity}/{n_roots})"
+            );
+
+            measured.sort_by_key(|a| std::cmp::Reverse(a.1));
+            slowest = measured;
+            last_sum = sum;
+            last_size_wall = size_elapsed;
+        }
+
+        let mut collect_sorted = collect_times.clone();
+        let mut collect_seq_sorted = collect_seq_times.clone();
+        let mut drop_sorted = drop_times.clone();
+        let mut age_sorted = age_times.clone();
+        let mut age_seq_sorted = age_seq_times.clone();
+        let mut size_sorted = size_times.clone();
+        collect_sorted.sort();
+        collect_seq_sorted.sort();
+        drop_sorted.sort();
+        age_sorted.sort();
+        age_seq_sorted.sort();
+        size_sorted.sort();
+        println!(
+            "bench project phases medians: collect={:?} collect_1_thread={:?} drop={:?} \
+             age={:?} age_1_thread={:?} size={:?}",
+            collect_sorted[1],
+            collect_seq_sorted[1],
+            drop_sorted[1],
+            age_sorted[1],
+            age_seq_sorted[1],
+            size_sorted[1]
+        );
+        println!(
+            "bench project phases medians: walk speedup (1 thread / N threads) = {:.2}x on {} threads; \
+             activity speedup = {:.2}x",
+            collect_seq_sorted[1].as_secs_f64() / collect_sorted[1].as_secs_f64().max(f64::EPSILON),
+            rayon::current_num_threads(),
+            age_seq_sorted[1].as_secs_f64() / age_sorted[1].as_secs_f64().max(f64::EPSILON),
+        );
+
+        let total_bytes: u64 = slowest.iter().map(|(b, _, _)| b).sum();
+        println!("bench project phases counts:");
+        println!("  directories the walk reads: {dirs_total} (skipped by SKIP_DIRS: {dirs_skipped})");
+        println!(
+            "  walk floor (sequential read_dir + name sets only): {floor_elapsed:?} over {floor_entries} entries"
+        );
+        println!(
+            "  walk raw floor (sequential read_dir only): {raw_elapsed:?} over {raw_entries} entries"
+        );
+        println!("  candidates from the walk: {n_candidates}");
+        println!("  candidates after the drop pipeline: {n_after_filter}");
+        println!("  distinct project roots: {n_roots}");
+        println!("  bytes measured in the last sizing run: {total_bytes}");
+        println!("  10 slowest items (last run):");
+        for (i, (bytes, elapsed, path)) in slowest.iter().take(10).enumerate() {
+            println!("    #{i}: size={bytes} duration={elapsed:?} path={path}");
+        }
+        if let Some((bytes, elapsed, path)) = slowest.first() {
+            let share = if last_sum.is_zero() {
+                0.0
+            } else {
+                elapsed.as_secs_f64() * 100.0 / last_sum.as_secs_f64()
+            };
+            let wall_share = if last_size_wall.is_zero() {
+                0.0
+            } else {
+                elapsed.as_secs_f64() * 100.0 / last_size_wall.as_secs_f64()
+            };
+            println!(
+                "  slowest item: {path} size={bytes} duration={elapsed:?} \
+                 share of summed item time {share:.1}%, share of wall-clock sizing {wall_share:.1}%"
+            );
+        }
     }
 }

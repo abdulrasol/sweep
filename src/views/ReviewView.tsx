@@ -14,6 +14,7 @@ interface ReviewViewProps {
   scanPath: string;
   selectedModules: string[];
   ignoredPaths: string[];
+  maxDepth: number;
   deleteMode: 'trash' | 'permanent';
   onIgnore: (path: string) => void;
   onStartCleaning: (items: CleanupItem[]) => void;
@@ -106,7 +107,7 @@ function Checkbox({ checked, partial, disabled, onClick, label }: {
   );
 }
 
-export default function ReviewView({ scanPath, selectedModules, ignoredPaths, deleteMode, onIgnore, onStartCleaning, onChangeScope }: ReviewViewProps) {
+export default function ReviewView({ scanPath, selectedModules, ignoredPaths, maxDepth, deleteMode, onIgnore, onStartCleaning, onChangeScope }: ReviewViewProps) {
   const [items, setItems] = useState<CleanupItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -147,6 +148,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
           path: scanPath,
           modules: selectedModules,
           ignoredPaths,
+          maxDepth,
           onEvent: channel,
         });
         setItems(data);
@@ -167,7 +169,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, de
     run();
     // ignoredPaths is read at scan time; ignoring an item removes it locally without a rescan.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanPath, selectedModules, scanNonce]);
+  }, [scanPath, selectedModules, scanNonce, maxDepth]);
 
   // ----- Derived data -------------------------------------------------------
 

@@ -11,6 +11,7 @@ import AboutView from './views/AboutView';
 import { invoke } from './lib/tauri';
 import { accentById } from './lib/accents';
 import { checkForUpdate, type UpdateState } from './lib/updates';
+import { DEFAULT_SEARCH_DEPTH, isSearchDepth } from './lib/scanDepth';
 
 const readJson = <T,>(key: string, fallback: T): T => {
   try {
@@ -18,6 +19,16 @@ const readJson = <T,>(key: string, fallback: T): T => {
     return saved ? (JSON.parse(saved) as T) : fallback;
   } catch {
     return fallback;
+  }
+};
+
+/** Read the saved search depth, falling back to the default. */
+const readSearchDepth = (): number => {
+  try {
+    const saved = Number(localStorage.getItem('sweep_max_depth'));
+    return isSearchDepth(saved) ? saved : DEFAULT_SEARCH_DEPTH;
+  } catch {
+    return DEFAULT_SEARCH_DEPTH;
   }
 };
 
@@ -35,6 +46,7 @@ export default function App() {
     readJson('sweep_modules', ['flutter', 'node', 'rust', 'xcode']),
   );
   const [ignoredPaths, setIgnoredPaths] = useState<string[]>(() => readJson('sweep_ignored', []));
+  const [maxDepth, setMaxDepth] = useState<number>(readSearchDepth);
   const [accent, setAccent] = useState(() => localStorage.getItem('sweep_accent') || 'emerald');
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
     localStorage.getItem('sweep_theme') === 'light' ? 'light' : 'dark',
@@ -73,9 +85,10 @@ export default function App() {
     localStorage.setItem('sweep_theme', theme);
     localStorage.setItem('sweep_delete_mode', deleteMode);
     localStorage.setItem('sweep_auto_update_check', autoUpdateCheck ? 'on' : 'off');
+    localStorage.setItem('sweep_max_depth', String(maxDepth));
     localStorage.removeItem('sweep_auto_purge');
     localStorage.removeItem('sweep_verbose');
-  }, [scanPath, selectedModules, ignoredPaths, accent, theme, deleteMode, autoUpdateCheck]);
+  }, [scanPath, selectedModules, ignoredPaths, accent, theme, deleteMode, autoUpdateCheck, maxDepth]);
 
   const runUpdateCheck = useCallback(async (quiet: boolean) => {
     if (!version) return;
@@ -130,6 +143,7 @@ export default function App() {
             scanPath={scanPath}
             selectedModules={selectedModules}
             ignoredPaths={ignoredPaths}
+            maxDepth={maxDepth}
             deleteMode={deleteMode}
             onIgnore={(path) => setIgnoredPaths(prev => [...new Set([...prev, path])])}
             onStartCleaning={startCleaning}
@@ -174,6 +188,8 @@ export default function App() {
             onThemeChange={setTheme}
             deleteMode={deleteMode}
             onDeleteModeChange={setDeleteMode}
+            maxDepth={maxDepth}
+            onMaxDepthChange={setMaxDepth}
             ignoredPaths={ignoredPaths}
             onUnhide={(path) => setIgnoredPaths(prev => prev.filter(p => p !== path))}
             onUnhideAll={() => setIgnoredPaths([])}

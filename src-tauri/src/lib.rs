@@ -43,6 +43,7 @@ async fn scan_environment(
     path: String,
     modules: Vec<String>,
     ignored_paths: Vec<String>,
+    max_depth: Option<usize>,
 ) -> Result<Vec<CleanupItem>, String> {
     let base = PathBuf::from(&path);
     if path.is_empty() || !base.is_dir() {
@@ -66,7 +67,15 @@ async fn scan_environment(
             cancelled: &|| flag.load(Ordering::Relaxed),
             progress: &progress,
         };
-        cleanup_engine::scan_directory_with(&base, &modules, &ignored_paths, &env, &running, &hooks)
+        cleanup_engine::scan_directory_with_options(
+            &base,
+            &modules,
+            &ignored_paths,
+            &env,
+            &running,
+            &hooks,
+            cleanup_engine::ScanOptions { max_depth },
+        )
     })
     .await
     .map_err(|e| format!("Scan failed: {e}"))?;

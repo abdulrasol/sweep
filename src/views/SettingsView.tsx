@@ -3,6 +3,7 @@ import { Moon, Sun, Eye } from 'lucide-react';
 import { ACCENTS } from '../lib/accents';
 import UpdatePanel from '../components/UpdatePanel';
 import type { UpdateState } from '../lib/updates';
+import { SEARCH_DEPTHS } from '../lib/scanDepth';
 
 interface SettingsViewProps {
   accent: string;
@@ -11,6 +12,8 @@ interface SettingsViewProps {
   onThemeChange: (theme: 'light' | 'dark') => void;
   deleteMode: 'trash' | 'permanent';
   onDeleteModeChange: (mode: 'trash' | 'permanent') => void;
+  maxDepth: number;
+  onMaxDepthChange: (depth: number) => void;
   ignoredPaths: string[];
   onUnhide: (path: string) => void;
   onUnhideAll: () => void;
@@ -36,7 +39,8 @@ function Row({ title, hint, children }: { title: string; hint: string; children:
 
 export default function SettingsView({
   accent, onAccentChange, theme, onThemeChange,
-  deleteMode, onDeleteModeChange, ignoredPaths, onUnhide, onUnhideAll,
+  deleteMode, onDeleteModeChange, maxDepth, onMaxDepthChange,
+  ignoredPaths, onUnhide, onUnhideAll,
   autoUpdateCheck, onAutoUpdateCheckChange, update, onCheckForUpdates,
 }: SettingsViewProps) {
   return (
@@ -82,6 +86,27 @@ export default function SettingsView({
                 </button>
               ))}
             </div>
+          </Row>
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <h3 className="text-sm font-semibold">Scanning</h3>
+        <div className="bg-surface-container border border-outline rounded-xl divide-y divide-outline">
+          <Row
+            title="Search depth"
+            hint="How many folder levels below the projects folder Sweep searches. Deeper finds projects nested further down, but takes longer."
+          >
+            <select
+              aria-label="Search depth"
+              value={maxDepth}
+              onChange={(e) => onMaxDepthChange(Number(e.target.value))}
+              className="bg-surface-dim border border-outline rounded-lg px-3 py-1.5 text-sm outline-none focus:border-primary/60"
+            >
+              {SEARCH_DEPTHS.map(depth => (
+                <option key={depth} value={depth}>{depth} levels</option>
+              ))}
+            </select>
           </Row>
         </div>
       </section>
