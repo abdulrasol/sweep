@@ -8,6 +8,7 @@ import ReviewView from './views/ReviewView';
 import ExecutionView from './views/ExecutionView';
 import SettingsView from './views/SettingsView';
 import AboutView from './views/AboutView';
+import HistoryView from './views/HistoryView';
 import { invoke } from './lib/tauri';
 import { accentById } from './lib/accents';
 import { checkForUpdate, type UpdateState } from './lib/updates';
@@ -179,6 +180,8 @@ export default function App() {
             </button>
           </div>
         );
+      case 'history':
+        return <HistoryView />;
       case 'settings':
         return (
           <SettingsView

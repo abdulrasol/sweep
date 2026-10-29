@@ -1,5 +1,6 @@
 mod access;
 mod cleanup_engine;
+mod history;
 
 use cleanup_engine::{CleanupItem, DeleteMode, Env, Removed, ScannedItem};
 use std::collections::HashMap;
@@ -8,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use sysinfo::{Disks, System};
-use tauri::State;
+use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 /// Results of the last scan. Deletion only ever acts on items stored here.
@@ -130,6 +131,7 @@ impl From<&str> for RemovalFailure {
 /// item went to the Trash.
 #[tauri::command]
 async fn cleanup_item(
+    app: tauri::AppHandle,
     store: State<'_, Mutex<ScanStore>>,
     id: String,
     mode: Option<String>,
@@ -169,6 +171,18 @@ async fn cleanup_item(
     .map_err(|e| RemovalFailure::from(format!("Cleanup failed: {e}")))
     .and_then(|r| r);
 
+    // Remember what this removal freed. History is a side effect: it never changes the result.
+    let outcome = match &result {
+        Ok(removed) => Ok((removed.bytes, removed.trashed)),
+        Err(failure) => Err(failure.freed),
+    };
+    if let Some(entry) = history::entry_for(&item.item, outcome, history::now_secs()) {
+        match app.path().app_data_dir() {
+            Ok(dir) => history::record(&dir, &entry),
+            Err(e) => eprintln!("Sweep: no data folder for the cleanup history: {e}"),
+        }
+    }
+
     match result {
         Ok(removed) => Ok(removed),
         Err(err) => {
@@ -180,6 +194,19 @@ async fn cleanup_item(
             Err(err)
         }
     }
+}
+
+/// Totals of everything Sweep has removed (PLAN 4.5).
+#[tauri::command]
+fn get_history(app: tauri::AppHandle) -> Result<history::HistorySummary, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(history::summarize(&history::load(&dir), history::now_secs()))
+}
+
+#[tauri::command]
+fn clear_history(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    history::clear(&dir).map_err(|e| format!("Could not clear the history: {e}"))
 }
 
 #[tauri::command]
@@ -370,6 +397,8 @@ pub fn run() {
             scan_environment,
             cancel_scan,
             cleanup_item,
+            get_history,
+            clear_history,
             select_directory,
             open_external,
             reveal_item,

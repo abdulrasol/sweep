@@ -33,5 +33,35 @@ declare global {
     disk_free: number;
   }
 
-  type View = 'scan' | 'review' | 'cleanup' | 'settings' | 'about';
+  /** Totals for one tool in the cleanup history (PLAN 4.5). */
+  interface HistoryModule {
+    module: string;
+    freed: number;
+    trashed: number;
+    count: number;
+  }
+
+  /** Totals for one UTC day (YYYY-MM-DD) in the cleanup history. */
+  interface HistoryDay {
+    day: string;
+    freed: number;
+    trashed: number;
+    count: number;
+  }
+
+  interface HistorySummary {
+    /** Bytes removed for good. */
+    total_freed: number;
+    /** Bytes moved to the Trash; not free until the Trash is emptied. */
+    total_trashed: number;
+    items_removed: number;
+    /** Unix seconds of the first recorded removal. */
+    first_ts: number | null;
+    last_30_days_freed: number;
+    by_module: HistoryModule[];
+    /** Last 30 days only, oldest first; days without removals are missing. */
+    by_day: HistoryDay[];
+  }
+
+  type View = 'scan' | 'review' | 'cleanup' | 'history' | 'settings' | 'about';
 }
