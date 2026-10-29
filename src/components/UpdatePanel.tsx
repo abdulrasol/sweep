@@ -1,6 +1,7 @@
 import { RefreshCw, Download } from 'lucide-react';
 import { openExternal } from '../lib/tauri';
 import type { UpdateState } from '../lib/updates';
+import { useI18n } from '../i18n';
 
 interface UpdatePanelProps {
   update: UpdateState;
@@ -9,12 +10,13 @@ interface UpdatePanelProps {
 
 /** Update status with the matching action. Shared by Settings and About. */
 export default function UpdatePanel({ update, onCheck }: UpdatePanelProps) {
+  const { t } = useI18n();
   const status =
-    update.kind === 'checking' ? 'Checking for updates…'
-    : update.kind === 'current' ? 'You have the latest version.'
-    : update.kind === 'available' ? `Sweep ${update.version} is available.`
-    : update.kind === 'error' ? 'Could not reach the update server. Check your connection and try again.'
-    : 'Sweep does not update itself. It tells you when a new version is out.';
+    update.kind === 'checking' ? t('update.checking')
+    : update.kind === 'current' ? t('update.current')
+    : update.kind === 'available' ? t('update.available', { version: update.version })
+    : update.kind === 'error' ? t('update.error')
+    : t('update.idle');
 
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -27,7 +29,7 @@ export default function UpdatePanel({ update, onCheck }: UpdatePanelProps) {
           <>
             {' '}
             <button onClick={() => openExternal(update.releaseUrl)} className="text-primary hover:underline">
-              What's new
+              {t('update.whatsNew')}
             </button>
           </>
         )}
@@ -38,7 +40,7 @@ export default function UpdatePanel({ update, onCheck }: UpdatePanelProps) {
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-on-surface text-surface text-sm font-medium hover:opacity-90 transition-opacity"
         >
           <Download className="w-4 h-4" />
-          Download {update.version}
+          {t('update.download', { version: update.version })}
         </button>
       ) : (
         <button
@@ -47,7 +49,7 @@ export default function UpdatePanel({ update, onCheck }: UpdatePanelProps) {
           className="flex items-center gap-2 px-4 py-2 rounded-lg border border-outline text-sm font-medium hover:bg-surface-bright transition-colors disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${update.kind === 'checking' ? 'animate-spin' : ''}`} />
-          Check for updates
+          {t('update.check')}
         </button>
       )}
     </div>

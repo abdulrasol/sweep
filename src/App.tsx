@@ -14,6 +14,7 @@ import { invoke } from './lib/tauri';
 import { accentById } from './lib/accents';
 import { checkForUpdate, type UpdateState } from './lib/updates';
 import { DEFAULT_SEARCH_DEPTH, isSearchDepth } from './lib/scanDepth';
+import { useI18n } from './i18n';
 
 const readJson = <T,>(key: string, fallback: T): T => {
   try {
@@ -35,6 +36,7 @@ const readSearchDepth = (): number => {
 };
 
 export default function App() {
+  const { t } = useI18n();
   const [activeView, setActiveView] = useState<View>('scan');
   const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null);
   const [version, setVersion] = useState('');
@@ -168,16 +170,16 @@ export default function App() {
           <div className="h-full flex flex-col items-center justify-center gap-4 text-center px-6">
             <ListChecks className="w-8 h-8 text-on-surface/30" strokeWidth={1.5} />
             <div className="space-y-1.5">
-              <h2 className="text-lg font-semibold">Nothing is being cleaned</h2>
+              <h2 className="text-lg font-semibold">{t('app.nothingCleaning')}</h2>
               <p className="text-sm text-on-surface/60 max-w-sm">
-                Scan your projects, pick what to remove in Review, and the cleanup runs here.
+                {t('app.nothingCleaningHint')}
               </p>
             </div>
             <button
               onClick={() => navigate('review')}
               className="mt-2 px-4 py-2 rounded-lg bg-on-surface text-surface text-sm font-medium hover:opacity-90 transition-opacity"
             >
-              Go to Review
+              {t('app.goToReview')}
             </button>
           </div>
         );

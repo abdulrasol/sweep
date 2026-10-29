@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, X, Loader2, Square, RefreshCw, FolderCog } from 'lucide-react';
 import { invoke, formatBytes } from '../lib/tauri';
+import { useI18n } from '../i18n';
 
 interface ExecutionViewProps {
   items: CleanupItem[];
@@ -24,6 +25,7 @@ const name = (path: string) => path.split('/').filter(Boolean).pop() ?? path;
 const parent = (path: string) => tildePath(path.split('/').slice(0, -1).join('/') || '/');
 
 export default function ExecutionView({ items, deleteMode, onRunningChange, onScanAgain, onChangeScope }: ExecutionViewProps) {
+  const { t, tn } = useI18n();
   const [states, setStates] = useState<ItemState[]>(() => items.map(() => ({ kind: 'pending' })));
   const [phase, setPhase] = useState<Phase>('running');
   const [current, setCurrent] = useState(0);
@@ -106,15 +108,14 @@ export default function ExecutionView({ items, deleteMode, onRunningChange, onSc
   };
 
   const title =
-    phase === 'done' ? (failed ? `Finished with ${failed} ${failed === 1 ? 'problem' : 'problems'}` : 'Cleanup finished')
-    : phase === 'stopped' ? 'Cleanup stopped'
-    : phase === 'stopping' ? 'Stopping after this item…'
-    : `Cleaning ${total} ${total === 1 ? 'item' : 'items'}`;
+    phase === 'done' ? (failed ? tn('exec.problems', failed) : t('exec.finished'))
+    : phase === 'stopped' ? t('exec.stopped')
+    : phase === 'stopping' ? t('exec.stoppingTitle')
+    : tn('exec.cleaning', total);
 
   const subtitle = running
-    ? `Removing ${tildePath(items[current]?.path ?? '')}`
-    : `Removed ${doneCount} of ${total} ${total === 1 ? 'item' : 'items'}.` +
-      (failed ? ' The ones that failed are marked below with the reason.' : '');
+    ? t('exec.removing', { path: tildePath(items[current]?.path ?? '') })
+    : tn('exec.removed', total, { done: doneCount }) + (failed ? t('exec.failedNote') : '');
 
   const [freedValue, freedUnit] = formatBytes(freed).split(' ');
 
@@ -126,17 +127,17 @@ export default function ExecutionView({ items, deleteMode, onRunningChange, onSc
             <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
             <p className="text-sm text-on-surface/60 truncate" title={subtitle}>{subtitle}</p>
           </div>
-          <div className="text-right shrink-0" aria-live="polite">
+          <div className="text-end shrink-0" aria-live="polite">
             <div className="flex items-baseline justify-end gap-1">
               <span className="text-5xl font-light tracking-tight tabular-nums text-primary">{freedValue}</span>
               <span className="text-base text-on-surface/60">{freedUnit}</span>
             </div>
             <div className="text-xs text-on-surface/50 tabular-nums">
-              freed of {formatBytes(selectedBytes)} selected
+              {t('exec.freedOf', { size: formatBytes(selectedBytes) })}
             </div>
             {trashedBytes > 0 && (
               <div className="text-xs text-on-surface/50">
-                {formatBytes(trashedBytes)} moved to the Trash. Empty the Trash to free that space.
+                {t('exec.trashed', { size: formatBytes(trashedBytes) })}
               </div>
             )}
           </div>
@@ -156,7 +157,7 @@ export default function ExecutionView({ items, deleteMode, onRunningChange, onSc
             />
           </div>
           <div className="flex justify-between text-xs text-on-surface/55 tabular-nums">
-            <span>{finished} of {total} done{failed ? `, ${failed} failed` : ''}</span>
+            <span>{failed ? t('exec.progressFailed', { done: finished, total, failed }) : t('exec.progress', { done: finished, total })}</span>
             <span>{Math.round(progress * 100)}%</span>
           </div>
         </div>
@@ -169,7 +170,7 @@ export default function ExecutionView({ items, deleteMode, onRunningChange, onSc
               className="flex items-center gap-2 px-4 py-2 rounded-lg border border-outline text-sm font-medium hover:bg-surface-bright transition-colors disabled:opacity-50"
             >
               <Square className="w-3.5 h-3.5" />
-              Stop after this item
+              {t('exec.stopAfter')}
             </button>
           ) : (
             <>
@@ -178,14 +179,14 @@ export default function ExecutionView({ items, deleteMode, onRunningChange, onSc
                 className="flex items-center gap-2 px-4 py-2 rounded-lg border border-outline text-sm font-medium hover:bg-surface-bright transition-colors"
               >
                 <FolderCog className="w-4 h-4" />
-                Change scope
+                {t('exec.changeScope')}
               </button>
               <button
                 onClick={onScanAgain}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-on-surface text-surface text-sm font-medium hover:opacity-90 transition-opacity"
               >
                 <RefreshCw className="w-4 h-4" />
-                Scan again
+                {t('exec.scanAgain')}
               </button>
             </>
           )}
@@ -194,7 +195,7 @@ export default function ExecutionView({ items, deleteMode, onRunningChange, onSc
 
       <section className="flex-1 min-h-[240px] bg-surface-container border border-outline rounded-2xl overflow-hidden flex flex-col">
         <div className="px-4 py-2.5 border-b border-outline text-xs text-on-surface/60 flex justify-between">
-          <span>Items, in the order they are removed</span>
+          <span>{t('exec.listTitle')}</span>
           <span className="tabular-nums">{total}</span>
         </div>
         <ol className="flex-1 overflow-y-auto divide-y divide-outline">
@@ -218,24 +219,24 @@ export default function ExecutionView({ items, deleteMode, onRunningChange, onSc
                 <div className="min-w-0">
                   <div className={`text-sm truncate ${s.kind === 'pending' || s.kind === 'skipped' ? 'text-on-surface/55' : 'font-medium'}`}>
                     {name(item.path)}
-                    <span className="ml-2 text-xs font-normal text-on-surface/45">{item.file_type || item.type}</span>
+                    <span className="ms-2 text-xs font-normal text-on-surface/45">{item.file_type || item.type}</span>
                   </div>
                   <div className="text-[11px] font-mono text-on-surface/45 truncate" title={item.path}>{parent(item.path)}</div>
                   {s.kind === 'failed' && (
                     <p className="mt-1 text-xs text-error">
                       {s.freed > 0
-                        ? `Partly removed: ${formatBytes(s.freed)} freed. ${s.error}`
+                        ? t('exec.partly', { size: formatBytes(s.freed), error: s.error })
                         : s.error}
                     </p>
                   )}
                 </div>
                 <span className={`text-sm font-mono tabular-nums whitespace-nowrap ${s.kind === 'done' ? '' : 'text-on-surface/50'}`}>
-                  {s.kind === 'skipped' ? 'Skipped'
+                  {s.kind === 'skipped' ? t('exec.skipped')
                     : s.kind === 'failed' && s.freed > 0 ? formatBytes(s.freed)
                     : formatBytes(item.size_bytes)}
                 </span>
                 <span className="sr-only">
-                  {s.kind === 'done' ? (s.trashed ? 'In Trash' : 'Removed') : s.kind === 'failed' ? (s.freed > 0 ? 'Partly removed' : 'Failed') : s.kind === 'working' ? 'Removing' : s.kind === 'skipped' ? 'Skipped' : 'Waiting'}
+                  {s.kind === 'done' ? (s.trashed ? t('exec.inTrash') : t('exec.removedState')) : s.kind === 'failed' ? (s.freed > 0 ? t('exec.partlyState') : t('exec.failedState')) : s.kind === 'working' ? t('exec.removingState') : s.kind === 'skipped' ? t('exec.skipped') : t('exec.waiting')}
                 </span>
               </li>
             );

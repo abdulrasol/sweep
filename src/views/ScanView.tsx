@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { FolderOpen, ScanSearch } from 'lucide-react';
 import { invoke } from '../lib/tauri';
 import { PROJECT_MODULES, GLOBAL_MODULES, type ModuleDef } from '../lib/modules';
+import { useI18n } from '../i18n';
 
 interface ScanViewProps {
   initialPath: string;
@@ -13,6 +14,7 @@ const ALL_MODULES = [...PROJECT_MODULES, ...GLOBAL_MODULES];
 const AVAILABLE_IDS = ALL_MODULES.filter(m => !m.soon).map(m => m.id);
 
 function ModuleCard({ mod, on, onToggle }: { mod: ModuleDef; on: boolean; onToggle: () => void }) {
+  const { t, td } = useI18n();
   const Icon = mod.icon;
   return (
     <button
@@ -20,7 +22,7 @@ function ModuleCard({ mod, on, onToggle }: { mod: ModuleDef; on: boolean; onTogg
       aria-checked={on}
       disabled={mod.soon}
       onClick={onToggle}
-      className={`text-left flex gap-3 p-3.5 rounded-xl border transition-colors
+      className={`text-start flex gap-3 p-3.5 rounded-xl border transition-colors
         ${mod.soon ? 'border-dashed border-outline opacity-60 cursor-not-allowed'
           : on ? 'border-primary/50 bg-primary/[0.05]' : 'border-outline bg-surface-container hover:border-outline-variant'}`}
     >
@@ -29,17 +31,17 @@ function ModuleCard({ mod, on, onToggle }: { mod: ModuleDef; on: boolean; onTogg
       </span>
       <span className="flex-1 min-w-0">
         <span className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{mod.title}</span>
+          <span className="text-sm font-medium truncate">{td(`module.${mod.id}.title`, mod.title)}</span>
           {mod.review && !mod.soon && (
-            <span title="Some items need your confirmation. They are not selected automatically." className="text-[10px] px-1.5 py-px rounded border border-warning/40 text-warning">Review</span>
+            <span title={t('scan.reviewBadgeTitle')} className="text-[10px] px-1.5 py-px rounded border border-warning/40 text-warning">{t('scan.reviewBadge')}</span>
           )}
-          {mod.soon && <span className="text-[10px] px-1.5 py-px rounded bg-surface-bright text-on-surface/60">Coming later</span>}
+          {mod.soon && <span className="text-[10px] px-1.5 py-px rounded bg-surface-bright text-on-surface/60">{t('scan.comingLater')}</span>}
         </span>
-        <span className="block mt-0.5 text-xs text-on-surface/55 leading-snug">{mod.description}</span>
+        <span className="block mt-0.5 text-xs text-on-surface/55 leading-snug">{td(`module.${mod.id}.desc`, mod.description)}</span>
       </span>
       {!mod.soon && (
         <span className={`mt-0.5 w-8 h-[18px] shrink-0 rounded-full p-0.5 transition-colors ${on ? 'bg-primary' : 'bg-outline-variant'}`} aria-hidden>
-          <span className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${on ? 'translate-x-3.5' : ''}`} />
+          <span className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${on ? 'translate-x-3.5 rtl:-translate-x-3.5' : ''}`} />
         </span>
       )}
     </button>
@@ -47,6 +49,7 @@ function ModuleCard({ mod, on, onToggle }: { mod: ModuleDef; on: boolean; onTogg
 }
 
 export default function ScanView({ initialPath, initialModules, onScan }: ScanViewProps) {
+  const { t } = useI18n();
   const [path, setPath] = useState(initialPath);
   const [enabled, setEnabled] = useState<Set<string>>(new Set(initialModules.filter(id => AVAILABLE_IDS.includes(id))));
   const [pickError, setPickError] = useState<string | null>(null);
@@ -111,9 +114,9 @@ export default function ScanView({ initialPath, initialModules, onScan }: ScanVi
           {fdaStatus === 'missing' && (
             <section className="border border-warning/40 bg-warning/[0.06] rounded-2xl p-5 space-y-3">
               <div className="space-y-1">
-                <h3 className="text-sm font-semibold">Sweep cannot see some protected folders</h3>
+                <h3 className="text-sm font-semibold">{t('scan.fdaTitle')}</h3>
                 <p className="text-xs text-on-surface/60 leading-relaxed">
-                  Without Full Disk Access, macOS hides folders like iPhone backups, the Trash and Safari data, so they may be missing from the results. Allow Sweep in Privacy and Security, then quit and reopen Sweep.
+                  {t('scan.fdaBody')}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -121,27 +124,26 @@ export default function ScanView({ initialPath, initialModules, onScan }: ScanVi
                   onClick={() => { invoke('open_privacy_settings').catch(() => {}); }}
                   className="px-3.5 py-2 rounded-lg border border-outline bg-surface-container text-sm font-medium hover:bg-surface-bright transition-colors"
                 >
-                  Open Privacy Settings
+                  {t('scan.openPrivacy')}
                 </button>
                 <button
                   onClick={checkAccess}
                   className="px-3.5 py-2 rounded-lg border border-outline bg-surface-container text-sm font-medium hover:bg-surface-bright transition-colors"
                 >
-                  Check again
+                  {t('scan.checkAgain')}
                 </button>
               </div>
             </section>
           )}
           <header className="space-y-1.5">
-            <h2 className="text-xl font-semibold tracking-tight">Choose what to scan</h2>
+            <h2 className="text-xl font-semibold tracking-tight">{t('scan.title')}</h2>
             <p className="text-sm text-on-surface/60 max-w-2xl">
-              Sweep looks for build output inside your projects folder and for caches left by the tools you turn on.
-              Nothing is removed until you review it.
+              {t('scan.intro')}
             </p>
           </header>
 
           <section className="space-y-2">
-            <label htmlFor="scan-path" className="text-sm font-semibold">Projects folder</label>
+            <label htmlFor="scan-path" className="text-sm font-semibold">{t('scan.projectsFolder')}</label>
             <div className="flex gap-2">
               <input
                 id="scan-path"
@@ -149,6 +151,7 @@ export default function ScanView({ initialPath, initialModules, onScan }: ScanVi
                 onChange={(e) => setPath(e.target.value)}
                 placeholder="/Users/you/Projects"
                 spellCheck={false}
+                dir="ltr"
                 className="flex-1 min-w-0 bg-surface-container border border-outline rounded-lg px-3 py-2 font-mono text-xs outline-none focus:border-primary/60 placeholder:text-on-surface/30"
               />
               <button
@@ -156,35 +159,35 @@ export default function ScanView({ initialPath, initialModules, onScan }: ScanVi
                 className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-outline bg-surface-container text-sm font-medium hover:bg-surface-bright transition-colors"
               >
                 <FolderOpen className="w-4 h-4" />
-                Choose…
+                {t('scan.choose')}
               </button>
             </div>
-            {pickError && <p className="text-xs text-error">Could not open the folder picker: {pickError}</p>}
+            {pickError && <p className="text-xs text-error">{t('scan.pickError', { error: pickError })}</p>}
           </section>
 
-          {section('In your projects', 'Build folders found under the projects folder. Folders with files tracked by git are never removed.', PROJECT_MODULES)}
-          {section('On this Mac', 'Caches outside your projects, in your home folder and ~/Library.', GLOBAL_MODULES)}
+          {section(t('scan.inProjects'), t('scan.inProjectsHint'), PROJECT_MODULES)}
+          {section(t('scan.onThisMac'), t('scan.onThisMacHint'), GLOBAL_MODULES)}
         </div>
       </div>
 
       <footer className="border-t border-outline bg-surface-container px-6 py-3.5 shrink-0">
         <div className="max-w-5xl mx-auto flex items-center gap-4">
           <span className="text-sm text-on-surface/60 tabular-nums">
-            {enabled.size} of {AVAILABLE_IDS.length} on
+            {t('scan.countOn', { on: enabled.size, total: AVAILABLE_IDS.length })}
           </span>
           <button
             onClick={() => setEnabled(allOn ? new Set() : new Set(AVAILABLE_IDS))}
             className="text-sm text-primary hover:underline"
           >
-            {allOn ? 'Turn all off' : 'Turn all on'}
+            {allOn ? t('scan.allOff') : t('scan.allOn')}
           </button>
           <button
             onClick={() => onScan(path.trim(), Array.from(enabled))}
             disabled={!canScan}
-            className="ml-auto flex items-center gap-2 px-5 py-2 rounded-lg bg-on-surface text-surface text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+            className="ms-auto flex items-center gap-2 px-5 py-2 rounded-lg bg-on-surface text-surface text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <ScanSearch className="w-4 h-4" />
-            Scan
+            {t('scan.scan')}
           </button>
         </div>
       </footer>

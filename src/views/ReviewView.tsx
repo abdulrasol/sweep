@@ -9,6 +9,7 @@ import { BrandTile, groupIcon } from '../lib/brands';
 import { goesPermanent } from '../lib/deleteMode';
 import { moduleTitle } from '../lib/modules';
 import { formatAge } from '../lib/age';
+import { useI18n, type MessageKey } from '../i18n';
 
 interface ReviewViewProps {
   scanPath: string;
@@ -31,10 +32,10 @@ type ScanProgressEvent =
 
 const GROUP_ORDER = ['Projects', 'Dev Tools', 'AI Tools', 'Editors', 'System & Apps'];
 
-const SAFETY_STYLE: Record<SafetyLevel, { badge: string; dot: string; label: string }> = {
-  SAFE: { badge: 'bg-safe/10 text-safe border-safe/30', dot: 'bg-safe', label: 'Safe' },
-  REVIEW: { badge: 'bg-warning/10 text-warning border-warning/30', dot: 'bg-warning', label: 'Review' },
-  DANGER: { badge: 'bg-error/10 text-error border-error/30', dot: 'bg-error', label: 'Danger' },
+const SAFETY_STYLE: Record<SafetyLevel, { badge: string; dot: string; label: MessageKey }> = {
+  SAFE: { badge: 'bg-safe/10 text-safe border-safe/30', dot: 'bg-safe', label: 'safety.safe' },
+  REVIEW: { badge: 'bg-warning/10 text-warning border-warning/30', dot: 'bg-warning', label: 'safety.review' },
+  DANGER: { badge: 'bg-error/10 text-error border-error/30', dot: 'bg-error', label: 'safety.danger' },
 };
 
 const sum = (list: CleanupItem[]) => list.reduce((acc, i) => acc + i.size_bytes, 0);
@@ -56,7 +57,7 @@ function renderPathTitle(path: string) {
   const prev = parts.length > 1 ? parts[parts.length - 2] : null;
 
   return (
-    <span className="text-sm font-semibold truncate" title={path}>
+    <span className="text-sm font-semibold truncate" dir="ltr" title={path}>
       {prev && <span className="text-on-surface/50 font-normal">{prev} / </span>}
       <span>{last}</span>
     </span>
@@ -108,6 +109,7 @@ function Checkbox({ checked, partial, disabled, onClick, label }: {
 }
 
 export default function ReviewView({ scanPath, selectedModules, ignoredPaths, maxDepth, deleteMode, onIgnore, onStartCleaning, onChangeScope }: ReviewViewProps) {
+  const { t, td, tn } = useI18n();
   const [items, setItems] = useState<CleanupItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -116,7 +118,8 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
   const [confirmText, setConfirmText] = useState('');
   const [scanNonce, setScanNonce] = useState(0);
 
-  const [phaseLabel, setPhaseLabel] = useState('Checking installed tools');
+  // Null until the engine reports a phase; the first phase is shown in the interface language.
+  const [phaseLabel, setPhaseLabel] = useState<string | null>(null);
   const [currentPath, setCurrentPath] = useState('');
   const [measuring, setMeasuring] = useState<{ done: number; total: number; bytes: number } | null>(null);
   const [stopping, setStopping] = useState(false);
@@ -134,7 +137,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
     const run = async () => {
       setLoading(true);
       setStopping(false);
-      setPhaseLabel('Checking installed tools');
+      setPhaseLabel(null);
       setCurrentPath('');
       setMeasuring(null);
       try {
@@ -302,7 +305,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
     return (
       <div className="flex flex-col items-center justify-center h-full space-y-4">
         <RefreshCw className="w-8 h-8 text-primary animate-spin opacity-60" />
-        <p className="text-sm text-on-surface/60">{phaseLabel}…</p>
+        <p className="text-sm text-on-surface/60">{phaseLabel ?? t('review.phaseInit')}…</p>
         <p className="text-xs font-mono text-on-surface/40 max-w-md truncate" title={currentPath || scanPath}>
           {tildePath(currentPath || scanPath)}
         </p>
@@ -321,7 +324,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
               />
             </div>
             <div className="flex justify-between text-xs text-on-surface/55 tabular-nums">
-              <span>{measuring.done} of {measuring.total}</span>
+              <span>{t('review.progress', { done: measuring.done, total: measuring.total })}</span>
               <span>{formatBytes(measuring.bytes)}</span>
             </div>
           </div>
@@ -332,7 +335,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
           className="flex items-center gap-2 px-4 py-2 rounded-lg border border-outline text-sm font-medium hover:bg-surface-bright transition-colors disabled:opacity-50"
         >
           <Square className="w-3.5 h-3.5" />
-          {stopping ? 'Stopping…' : 'Stop'}
+          {stopping ? t('review.stopping') : t('review.stop')}
         </button>
       </div>
     );
@@ -347,16 +350,15 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
         {/* Summary */}
         <section className="bg-surface-container border border-outline rounded-2xl p-6 flex flex-wrap items-center justify-between gap-6">
           <div className="flex-1 min-w-[240px] space-y-1">
-            <h2 className="text-xl font-semibold tracking-tight">Review what to remove</h2>
+            <h2 className="text-xl font-semibold tracking-tight">{t('review.title')}</h2>
             <p className="text-sm text-on-surface/60">
-              {items.length} items, {formatBytes(sum(items))} in total.
-              Safe items are selected for you; Review and Danger items are not.
+              {tn('review.summary', items.length, { size: formatBytes(sum(items)) })}
             </p>
             <div className="flex flex-wrap gap-3 pt-2 text-xs">
               {safetyCounts.map(([s, list]) => (
                 <span key={s} className="flex items-center gap-1.5 text-on-surface/70">
                   <span className={`w-2 h-2 rounded-full ${SAFETY_STYLE[s].dot}`} />
-                  {SAFETY_STYLE[s].label} {list.length} · {formatBytes(sum(list))}
+                  {t(SAFETY_STYLE[s].label)} {list.length} · {formatBytes(sum(list))}
                 </span>
               ))}
             </div>
@@ -367,14 +369,14 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
               onClick={() => setScanNonce(n => n + 1)}
               className="flex items-center justify-center gap-2 px-5 py-2.5 border border-outline rounded-lg text-xs font-medium text-on-surface/70 hover:bg-surface-bright transition"
             >
-              <RefreshCw className="w-3.5 h-3.5" /> Scan again
+              <RefreshCw className="w-3.5 h-3.5" /> {t('review.scanAgain')}
             </button>
           </div>
 
           {scanError && (
             <p className="basis-full text-sm text-error">
-              Scan failed: {scanError}{' '}
-              <button onClick={onChangeScope} className="underline">Change scope</button>
+              {t('review.scanFailed', { error: scanError })}{' '}
+              <button onClick={onChangeScope} className="underline">{t('review.changeScope')}</button>
             </p>
           )}
         </section>
@@ -383,11 +385,11 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
             <Chip active={groupFilter === 'ALL'} onClick={() => { setGroupFilter('ALL'); setTypeFilter('ALL'); }}>
-              All <span className="opacity-60 tabular-nums">{formatBytes(sum(items))}</span>
+              {t('review.all')} <span className="opacity-60 tabular-nums">{formatBytes(sum(items))}</span>
             </Chip>
             {groups.map(([g, list]) => (
               <Chip key={g} active={groupFilter === g} onClick={() => { setGroupFilter(g); setTypeFilter('ALL'); }}>
-                {g} <span className="opacity-60 tabular-nums">{list.length} · {formatBytes(sum(list))}</span>
+                {td(`group.${g}`, g)} <span className="opacity-60 tabular-nums">{list.length} · {formatBytes(sum(list))}</span>
               </Chip>
             ))}
           </div>
@@ -399,7 +401,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                 className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap border transition-colors
                   ${typeFilter === 'ALL' ? 'border-primary/50 bg-primary/10 text-primary' : 'border-transparent text-on-surface/60 hover:text-on-surface'}`}
               >
-                All types
+                {t('review.allTypes')}
               </button>
               {(showAllTypes ? types : types.slice(0, 8)).map(([t, list]) => (
                 <button
@@ -416,7 +418,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                   onClick={() => setShowAllTypes(prev => !prev)}
                   className="px-2.5 py-1 rounded-md text-[11px] font-medium text-on-surface/60 hover:text-on-surface hover:bg-surface-bright border border-outline/50 transition-colors"
                 >
-                  {showAllTypes ? 'Show less' : `+${types.length - 8} more`}
+                  {showAllTypes ? t('review.showLess') : t('review.moreTypes', { n: types.length - 8 })}
                 </button>
               )}
             </div>
@@ -426,7 +428,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
         {/* Sticky filters: single compact row */}
         <section className="sticky top-0 z-10 bg-surface-dim/95 backdrop-blur border border-outline rounded-2xl p-3">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex rounded-lg border border-outline overflow-hidden text-xs shrink-0" role="group" aria-label="Safety level">
+            <div className="flex rounded-lg border border-outline overflow-hidden text-xs shrink-0" role="group" aria-label={t('review.safetyLevel')}>
               {(['ALL', 'SAFE', 'REVIEW', 'DANGER'] as SafetyFilter[]).map(s => (
                 <button
                   key={s}
@@ -435,49 +437,49 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                     ${safetyFilter === s ? 'bg-on-surface text-surface' : 'bg-surface text-on-surface/70 hover:text-on-surface'}`}
                 >
                   {s !== 'ALL' && <span className={`w-1.5 h-1.5 rounded-full ${SAFETY_STYLE[s].dot}`} />}
-                  {s === 'ALL' ? 'Any level' : SAFETY_STYLE[s].label}
+                  {s === 'ALL' ? t('review.anyLevel') : t(SAFETY_STYLE[s].label)}
                 </button>
               ))}
             </div>
 
             <div className="relative flex-1 min-w-[180px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-on-surface/40" />
+              <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-on-surface/40" />
               <input
                 id="review-search"
-                placeholder="Search path, type or tool"
+                placeholder={t('review.searchPlaceholder')}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                className="w-full bg-surface border border-outline rounded-lg pl-9 pr-3 py-1.5 text-xs outline-none focus:border-primary/60 placeholder:text-on-surface/40"
+                className="w-full bg-surface border border-outline rounded-lg ps-9 pe-3 py-1.5 text-xs outline-none focus:border-primary/60 placeholder:text-on-surface/40"
               />
             </div>
 
             {toolOptions.length > 1 && (
               <select
-                aria-label="Tool"
+                aria-label={t('review.tool')}
                 value={toolFilter}
                 onChange={(e) => setToolFilter(e.target.value)}
                 className="bg-surface border border-outline rounded-lg px-3 py-1.5 text-xs text-on-surface/70 outline-none focus:border-primary/60 shrink-0"
               >
-                <option value="ALL">All tools</option>
-                {toolOptions.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {moduleTitle(t.id)} · {t.count} · {formatBytes(t.size)}
+                <option value="ALL">{t('review.allTools')}</option>
+                {toolOptions.map(tool => (
+                  <option key={tool.id} value={tool.id}>
+                    {td(`module.${tool.id}.title`, moduleTitle(tool.id))} · {tool.count} · {formatBytes(tool.size)}
                   </option>
                 ))}
               </select>
             )}
 
             <select
-              aria-label="Activity"
+              aria-label={t('review.activity')}
               value={ageFilter}
               onChange={(e) => setAgeFilter(e.target.value)}
               className="bg-surface border border-outline rounded-lg px-3 py-1.5 text-xs text-on-surface/70 outline-none focus:border-primary/60 shrink-0"
             >
-              <option value="ALL">Any activity</option>
-              <option value="30">Older than 30 days</option>
-              <option value="90">Older than 90 days</option>
-              <option value="180">Older than 180 days</option>
-              <option value="365">Older than 1 year</option>
+              <option value="ALL">{t('review.anyActivity')}</option>
+              <option value="30">{t('review.olderDays', { n: 30 })}</option>
+              <option value="90">{t('review.olderDays', { n: 90 })}</option>
+              <option value="180">{t('review.olderDays', { n: 180 })}</option>
+              <option value="365">{t('review.olderYear')}</option>
             </select>
 
             <button
@@ -485,12 +487,12 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
               className="flex items-center gap-1.5 px-3 py-1.5 border border-outline rounded-lg text-xs text-on-surface/70 hover:text-on-surface bg-surface shrink-0"
             >
               <ArrowDownWideNarrow className="w-3.5 h-3.5" />
-              {sortKey === 'size' ? 'Largest first' : sortKey === 'name' ? 'By path' : 'Oldest active'}
+              {sortKey === 'size' ? t('review.sortSize') : sortKey === 'name' ? t('review.sortName') : t('review.sortAge')}
             </button>
 
             {filtersActive && (
               <button onClick={clearFilters} className="flex items-center gap-1 text-xs text-on-surface/60 hover:text-on-surface shrink-0">
-                <X className="w-3.5 h-3.5" /> Clear filters
+                <X className="w-3.5 h-3.5" /> {t('review.clearFilters')}
               </button>
             )}
           </div>
@@ -504,32 +506,32 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
               partial={allVisible.some}
               disabled={allVisible.selectable.length === 0}
               onClick={() => toggleList(visible)}
-              label="Select all shown items"
+              label={t('review.selectAllShown')}
             />
             <span className="font-medium">
-              {visible.length} shown · {formatBytes(sum(visible))}
+              {t('review.shown', { n: visible.length, size: formatBytes(sum(visible)) })}
             </span>
             <button
               onClick={() => setSelection(visible.filter(i => i.status === 'SAFE' && !i.blocked_by).map(i => i.id), true)}
-              className="ml-auto flex items-center gap-1.5 text-primary hover:underline"
+              className="ms-auto flex items-center gap-1.5 text-primary hover:underline"
             >
-              <ShieldCheck className="w-3.5 h-3.5" /> Select safe shown
+              <ShieldCheck className="w-3.5 h-3.5" /> {t('review.selectSafeShown')}
             </button>
             <button onClick={() => setSelection(visible.map(i => i.id), false)} className="hover:text-on-surface">
-              Clear selection
+              {t('review.clearSelection')}
             </button>
           </div>
 
           {visible.length === 0 && (
             <div className="p-10 text-center space-y-3">
               <p className="text-sm text-on-surface/60">
-                {items.length === 0 ? 'Nothing to clean with the tools you turned on.' : 'No items match these filters.'}
+                {items.length === 0 ? t('review.nothingToClean') : t('review.noMatch')}
               </p>
               {items.length === 0 && !scanError && (
-                <button onClick={onChangeScope} className="text-xs text-primary hover:underline">Change folder or tools</button>
+                <button onClick={onChangeScope} className="text-xs text-primary hover:underline">{t('review.changeFolder')}</button>
               )}
               {filtersActive && (
-                <button onClick={clearFilters} className="text-xs text-primary hover:underline">Clear filters</button>
+                <button onClick={clearFilters} className="text-xs text-primary hover:underline">{t('review.clearFilters')}</button>
               )}
             </div>
           )}
@@ -547,13 +549,13 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                       partial={sel.some}
                       disabled={sel.selectable.length === 0}
                       onClick={() => toggleList(list)}
-                      label={`Select all in ${group}`}
+                      label={t('review.selectAllIn', { group: td(`group.${group}`, group) })}
                     />
                     <span className="flex items-center gap-2">
                       <GroupIcon className="w-4 h-4 text-on-surface/50" />
-                      <span>{group}</span>
+                      <span>{td(`group.${group}`, group)}</span>
                     </span>
-                    <span className="ml-auto font-normal font-mono tabular-nums">{list.length} · {formatBytes(sum(list))}</span>
+                    <span className="ms-auto font-normal font-mono tabular-nums">{list.length} · {formatBytes(sum(list))}</span>
                   </div>
                 )}
 
@@ -566,8 +568,8 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                       <li
                         key={item.id}
                         onClick={() => toggleItem(item)}
-                        className={`grid grid-cols-[auto_auto_minmax(0,1fr)_auto] gap-x-4 px-4 py-3 border-l-2 transition-colors
-                          ${selected ? 'border-l-on-surface/40 bg-surface-bright' : 'border-l-transparent hover:bg-surface-bright/50'}
+                        className={`grid grid-cols-[auto_auto_minmax(0,1fr)_auto] gap-x-4 px-4 py-3 border-s-2 transition-colors
+                          ${selected ? 'border-s-on-surface/40 bg-surface-bright' : 'border-s-transparent hover:bg-surface-bright/50'}
                           ${item.blocked_by ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                       >
                         <div className="pt-0.5">
@@ -575,7 +577,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                             checked={selected}
                             disabled={!!item.blocked_by}
                             onClick={() => toggleItem(item)}
-                            label={`Select ${item.path}`}
+                            label={t('review.select', { path: item.path })}
                           />
                         </div>
 
@@ -592,7 +594,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                               <span className="text-[11px] text-on-surface/50 whitespace-nowrap truncate">{item.file_type}</span>
                             )}
                           </div>
-                          <div className="text-[11px] font-mono text-on-surface/50 truncate" title={item.path}>
+                          <div className="text-[11px] font-mono text-on-surface/50 truncate" dir="ltr" title={item.path}>
                             {formatFullPath(item.path)}
                           </div>
                           <p className={`text-xs text-on-surface/60 leading-relaxed ${open ? '' : 'line-clamp-2'}`}>
@@ -600,12 +602,12 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                           </p>
                           {item.last_active !== null && (
                             <p className="text-[11px] text-on-surface/45">
-                              Last active: {formatAge(item.last_active, nowMs)}
+                              {t('review.lastActive', { age: formatAge(item.last_active, nowMs, { t, tn }) })}
                             </p>
                           )}
                           {item.blocked_by && (
                             <p className="flex items-center gap-1.5 text-xs font-medium text-error">
-                              <Lock className="w-3 h-3" /> Close {item.blocked_by} to remove this item.
+                              <Lock className="w-3 h-3" /> {t('review.closeToRemove', { app: item.blocked_by })}
                             </p>
                           )}
                         </div>
@@ -614,7 +616,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-mono font-medium tabular-nums whitespace-nowrap">{formatBytes(item.size_bytes)}</span>
                             <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded border ${style.badge}`}>
-                              {style.label}
+                              {t(style.label)}
                             </span>
                           </div>
                           <div className="w-full h-1 rounded-full bg-surface-bright overflow-hidden" aria-hidden>
@@ -622,16 +624,16 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                           </div>
                           <div className="flex items-center gap-0.5 text-on-surface/50" onClick={e => e.stopPropagation()}>
                             {!item.path.includes('://') && (
-                              <button onClick={() => reveal(item)} title="Show in Finder" className="p-1.5 rounded-md hover:bg-surface-bright hover:text-on-surface">
+                              <button onClick={() => reveal(item)} title={t('review.showInFinder')} className="p-1.5 rounded-md hover:bg-surface-bright hover:text-on-surface">
                                 <FolderSearch className="w-3.5 h-3.5" />
                               </button>
                             )}
-                            <button onClick={() => handleIgnore(item)} title="Never show this path again" className="p-1.5 rounded-md hover:bg-surface-bright hover:text-error">
+                            <button onClick={() => handleIgnore(item)} title={t('review.neverShow')} className="p-1.5 rounded-md hover:bg-surface-bright hover:text-error">
                               <EyeOff className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={() => setExpanded(prev => { const n = new Set(prev); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); return n; })}
-                              title={open ? 'Less detail' : 'More detail'}
+                              title={open ? t('review.lessDetail') : t('review.moreDetail')}
                               aria-expanded={open}
                               className="p-1.5 rounded-md hover:bg-surface-bright hover:text-on-surface"
                             >
@@ -652,14 +654,14 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
       {/* Fixed bottom action bar */}
       {selectedItems.length > 0 && (
         <aside
-          aria-label="Selection actions"
+          aria-label={t('review.selectionActions')}
           className="sticky bottom-0 z-20 bg-surface-container border-t border-outline shadow-lg"
         >
           <div className="max-w-6xl mx-auto px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div>
                 <span className="text-sm font-semibold text-on-surface">
-                  {selectedItems.length} selected
+                  {tn('review.selected', selectedItems.length)}
                 </span>
                 <span className="mx-2 text-on-surface/40">·</span>
                 <span className="text-sm font-mono text-on-surface/80 tabular-nums">
@@ -670,11 +672,11 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                 onClick={() => setSelectedIds(new Set())}
                 className="text-xs text-on-surface/60 hover:text-on-surface underline transition-colors"
               >
-                Clear selection
+                {t('review.clearSelection')}
               </button>
               {permanentCount > 0 && (
                 <span className="text-xs text-warning">
-                  {permanentCount} selected {permanentCount === 1 ? 'item will be' : 'items will be'} removed for good, not moved to the Trash.
+                  {tn('review.permanent', permanentCount)}
                 </span>
               )}
             </div>
@@ -684,13 +686,14 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-error/40 bg-error/10 text-xs">
                   <ShieldAlert className="w-4 h-4 text-error shrink-0" />
                   <span className="text-error font-medium hidden sm:inline">
-                    Type DELETE to confirm:
+                    {t('review.typeDelete')}
                   </span>
                   <input
                     id="danger-confirm"
                     value={confirmText}
                     onChange={(e) => setConfirmText(e.target.value)}
                     placeholder="DELETE"
+                    dir="ltr"
                     className="w-28 bg-surface border border-error/40 rounded-md px-2 py-1 text-xs font-mono outline-none focus:border-error text-error placeholder:text-error/40"
                   />
                 </div>
@@ -701,7 +704,7 @@ export default function ReviewView({ scanPath, selectedModules, ignoredPaths, ma
                 disabled={!canStart}
                 className="px-5 py-2.5 bg-on-surface text-surface rounded-lg font-medium text-sm hover:opacity-90 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Remove selected
+                {t('review.removeSelected')}
               </button>
             </div>
           </div>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { FolderOpen, Home, Loader2, ShieldAlert } from 'lucide-react';
 import { invoke, formatBytes } from '../lib/tauri';
 import { formatAge } from '../lib/age';
+import { useI18n, type MessageKey } from '../i18n';
 
 interface LargeFilesViewProps {
   /** The folder chosen on the Scan screen, offered as a shortcut. */
@@ -12,22 +13,22 @@ interface LargeFilesViewProps {
 
 type Mode = 'large' | 'duplicates';
 
-const MODES: { id: Mode; label: string; command: string; sizes: number[]; defaultMb: number; intro: string }[] = [
+const MODES: { id: Mode; label: MessageKey; command: string; sizes: number[]; defaultMb: number; intro: MessageKey }[] = [
   {
     id: 'large',
-    label: 'Large files',
+    label: 'large.large',
     command: 'find_large_files',
     sizes: [100, 250, 500, 1000, 2000],
     defaultMb: 500,
-    intro: 'Finds the biggest files you may have forgotten, like videos, archives and disk images.',
+    intro: 'large.introLarge',
   },
   {
     id: 'duplicates',
-    label: 'Duplicates',
+    label: 'large.duplicates',
     command: 'find_duplicates',
     sizes: [10, 50, 100, 250, 500],
     defaultMb: 50,
-    intro: 'Finds files with exactly the same contents, so you can keep one copy and remove the rest.',
+    intro: 'large.introDup',
   },
 ];
 
@@ -37,6 +38,7 @@ const parentPath = (path: string) => tildePath(path.split('/').slice(0, -1).join
 const sizeLabel = (mb: number) => (mb >= 1000 ? `${mb / 1000} GB` : `${mb} MB`);
 
 export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning }: LargeFilesViewProps) {
+  const { t, tn } = useI18n();
   const [mode, setMode] = useState<Mode>('large');
   // An empty folder means the home folder; the backend resolves it.
   const [folder, setFolder] = useState('');
@@ -125,7 +127,7 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
   const chosenBytes = chosen.reduce((sum, i) => sum + i.size_bytes, 0);
   const canStart = chosen.length > 0 && confirmText === 'DELETE';
   const nowMs = Date.now();
-  const where = searchedFolder ? tildePath(searchedFolder) : 'your home folder';
+  const where = searchedFolder ? tildePath(searchedFolder) : t('large.yourHome');
   const wastedTotal = (groups ?? []).reduce((sum, g) => sum + g.wasted, 0);
 
   const renderRow = (item: CleanupItem, lastCopy: boolean) => (
@@ -135,8 +137,8 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
         checked={selected.has(item.id)}
         disabled={lastCopy}
         onChange={() => toggle(item.id)}
-        aria-label={`Select ${fileName(item.path)}`}
-        title={lastCopy ? 'Keep at least one copy' : undefined}
+        aria-label={t('large.select', { name: fileName(item.path) })}
+        title={lastCopy ? t('large.keepOne') : undefined}
         className="w-4 h-4 accent-[var(--color-primary)] shrink-0 disabled:opacity-40"
       />
       <div className="min-w-0 flex-1">
@@ -146,23 +148,23 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
         </div>
         <div className="text-xs text-on-surface/50 truncate font-mono" title={item.path}>{parentPath(item.path)}</div>
         {item.last_active !== null && (
-          <div className="text-[11px] text-on-surface/45">Modified {formatAge(item.last_active, nowMs)}</div>
+          <div className="text-[11px] text-on-surface/45">{t('large.modified', { age: formatAge(item.last_active, nowMs, { t, tn }) })}</div>
         )}
         {item.description.includes('syncs to the cloud') && (
-          <div className="text-[11px] text-warning">In a cloud-synced folder: removing it may remove it online too.</div>
+          <div className="text-[11px] text-warning">{t('large.cloud')}</div>
         )}
       </div>
       <button onClick={() => reveal(item.id)} className="text-xs text-on-surface/60 hover:text-on-surface shrink-0">
-        Show in Finder
+        {t('large.showInFinder')}
       </button>
-      <span className="w-24 text-right text-sm tabular-nums shrink-0">{formatBytes(item.size_bytes)}</span>
+      <span className="w-24 text-end text-sm tabular-nums shrink-0">{formatBytes(item.size_bytes)}</span>
     </li>
   );
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8 space-y-5">
       <header className="space-y-3">
-        <h2 className="text-2xl font-semibold tracking-tight">Large files and duplicates</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">{t('large.title')}</h2>
         <div className="inline-flex rounded-lg border border-outline p-0.5" role="tablist">
           {MODES.map(m => (
             <button
@@ -173,23 +175,23 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
               disabled={busy}
               className={`px-3 py-1.5 rounded-md text-sm transition-colors ${mode === m.id ? 'bg-surface-bright font-semibold' : 'text-on-surface/60 hover:text-on-surface'}`}
             >
-              {m.label}
+              {t(m.label)}
             </button>
           ))}
         </div>
         <p className="text-sm text-on-surface/60">
-          {current.intro} These are your own files, so Sweep only moves them to the Trash and asks you to confirm.
+          {t(current.intro)} {t('large.trashNote')}
         </p>
       </header>
 
       <section className="bg-surface-container border border-outline rounded-2xl p-5 space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-on-surface/50 mr-1">Search in</span>
+          <span className="text-xs text-on-surface/50 me-1">{t('large.searchIn')}</span>
           <button
             onClick={() => setFolder('')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm ${folder === '' ? 'border-primary text-primary' : 'border-outline text-on-surface/70 hover:text-on-surface'}`}
           >
-            <Home className="w-3.5 h-3.5" /> Home folder
+            <Home className="w-3.5 h-3.5" /> {t('large.home')}
           </button>
           {scanPath && (
             <button
@@ -197,14 +199,14 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
               title={scanPath}
               className={`px-3 py-1.5 rounded-lg border text-sm ${folder === scanPath ? 'border-primary text-primary' : 'border-outline text-on-surface/70 hover:text-on-surface'}`}
             >
-              Scan folder
+              {t('large.scanFolder')}
             </button>
           )}
           <button
             onClick={chooseFolder}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline text-sm text-on-surface/70 hover:text-on-surface"
           >
-            <FolderOpen className="w-3.5 h-3.5" /> Choose folder…
+            <FolderOpen className="w-3.5 h-3.5" /> {t('large.chooseFolder')}
           </button>
         </div>
         {folder !== '' && folder !== scanPath && (
@@ -213,7 +215,7 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
 
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-on-surface/70">
-            {mode === 'large' ? 'Bigger than' : 'Files bigger than'}
+            {mode === 'large' ? t('large.biggerThan') : t('large.filesBiggerThan')}
             <select
               value={minMb}
               onChange={(e) => setMinMb(Number(e.target.value))}
@@ -227,10 +229,10 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
           {busy ? (
             <>
               <span className="flex items-center gap-2 text-sm text-on-surface/60">
-                <Loader2 className="w-4 h-4 animate-spin" /> {mode === 'large' ? 'Searching…' : 'Searching and comparing files…'}
+                <Loader2 className="w-4 h-4 animate-spin" /> {mode === 'large' ? t('large.searching') : t('large.searchingDup')}
               </span>
               <button onClick={cancel} className="px-3 py-1.5 rounded-lg border border-outline text-sm text-on-surface/70 hover:text-on-surface">
-                Cancel
+                {t('large.cancel')}
               </button>
             </>
           ) : (
@@ -238,29 +240,28 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
               onClick={search}
               className="px-4 py-2 bg-on-surface text-surface rounded-lg font-medium text-sm hover:opacity-90 active:scale-[0.98] transition"
             >
-              {mode === 'large' ? 'Find large files' : 'Find duplicates'}
+              {mode === 'large' ? t('large.findLarge') : t('large.findDup')}
             </button>
           )}
         </div>
         <p className="text-xs text-on-surface/45">
-          Skipped on purpose: hidden folders, Library, build, cache and dependency folders, app and library bundles,
-          and files with another hard link.
+          {t('large.skipped')}
         </p>
       </section>
 
       {error && <p className="text-sm text-error">{error}</p>}
 
       {mode === 'large' && files !== null && files.length === 0 && (
-        <p className="text-sm text-on-surface/60">No files bigger than {sizeLabel(minMb)} in {where}.</p>
+        <p className="text-sm text-on-surface/60">{t('large.noneLarge', { size: sizeLabel(minMb), where })}</p>
       )}
       {mode === 'duplicates' && groups !== null && groups.length === 0 && (
-        <p className="text-sm text-on-surface/60">No identical files bigger than {sizeLabel(minMb)} in {where}.</p>
+        <p className="text-sm text-on-surface/60">{t('large.noneDup', { size: sizeLabel(minMb), where })}</p>
       )}
 
       {mode === 'large' && files !== null && files.length > 0 && (
         <section className="bg-surface-container border border-outline rounded-2xl overflow-hidden">
           <div className="px-5 py-3 border-b border-outline text-sm text-on-surface/60 tabular-nums">
-            {files.length} {files.length === 1 ? 'file' : 'files'} in {where} · {formatBytes(files.reduce((s, i) => s + i.size_bytes, 0))}
+            {tn('large.fileCount', files.length, { where, size: formatBytes(files.reduce((s, i) => s + i.size_bytes, 0)) })}
           </div>
           <ul className="divide-y divide-outline">{files.map(item => renderRow(item, false))}</ul>
         </section>
@@ -270,19 +271,19 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-on-surface/60 tabular-nums">
-              {groups.length} {groups.length === 1 ? 'set' : 'sets'} in {where} · {formatBytes(wastedTotal)} can be freed
+              {tn('large.setCount', groups.length, { where, size: formatBytes(wastedTotal) })}
             </p>
             <button
               onClick={selectExtras}
               className="px-3 py-1.5 rounded-lg border border-outline text-sm text-on-surface/70 hover:text-on-surface"
             >
-              Keep the oldest, select the rest
+              {t('large.keepOldest')}
             </button>
           </div>
           {groups.map(group => (
             <section key={group.items[0].id} className="bg-surface-container border border-outline rounded-2xl overflow-hidden">
               <div className="px-5 py-3 border-b border-outline text-sm text-on-surface/60 tabular-nums">
-                {group.items.length} identical copies · {formatBytes(group.size_each)} each · {formatBytes(group.wasted)} can be freed
+                {t('large.copies', { n: group.items.length, each: formatBytes(group.size_each), wasted: formatBytes(group.wasted) })}
               </div>
               <ul className="divide-y divide-outline">
                 {group.items.map(item => renderRow(item, isLastCopy(group, item)))}
@@ -295,18 +296,19 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
       {chosen.length > 0 && (
         <section className="sticky bottom-4 bg-surface-container border border-outline rounded-2xl px-5 py-4 flex flex-wrap items-center justify-between gap-4 shadow-lg">
           <div className="text-sm tabular-nums">
-            <span className="font-semibold">{chosen.length} selected</span>
-            <span className="text-on-surface/60"> · {formatBytes(chosenBytes)}. They move to the Trash; empty it to free the space.</span>
+            <span className="font-semibold">{tn('large.selected', chosen.length)}</span>
+            <span className="text-on-surface/60">{t('large.selectedNote', { size: formatBytes(chosenBytes) })}</span>
           </div>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-error/40 bg-error/10 text-xs">
               <ShieldAlert className="w-4 h-4 text-error shrink-0" />
-              <span className="text-error font-medium hidden sm:inline">Type DELETE to confirm:</span>
+              <span className="text-error font-medium hidden sm:inline">{t('large.typeDelete')}</span>
               <input
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
                 placeholder="DELETE"
-                aria-label="Type DELETE to confirm"
+                dir="ltr"
+                aria-label={t('large.typeDeleteLabel')}
                 className="w-28 bg-surface border border-error/40 rounded-md px-2 py-1 text-xs font-mono outline-none focus:border-error text-error placeholder:text-error/40"
               />
             </div>
@@ -315,7 +317,7 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
               disabled={!canStart}
               className="px-5 py-2.5 bg-on-surface text-surface rounded-lg font-medium text-sm hover:opacity-90 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Move to Trash
+              {t('large.moveToTrash')}
             </button>
           </div>
         </section>

@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import { openExternal } from './lib/tauri';
+import { I18nProvider } from './i18n';
 
 // The app window never navigates away: web and email links open in the default app.
 document.addEventListener('click', (event) => {
@@ -17,6 +18,8 @@ document.addEventListener('click', (event) => {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <I18nProvider>
+      <App />
+    </I18nProvider>
   </StrictMode>,
 );
