@@ -46,6 +46,9 @@ const PACKAGE_EXTENSIONS: &[&str] = &[
     "docset",
 ];
 
+/// Tool folders whose big files are not the user's own (compared in lower case).
+const TOOL_DIRS: &[&str] = &["cache", "caches", "system-images"];
+
 struct Found {
     path: PathBuf,
     size: u64,
@@ -144,6 +147,9 @@ fn skip_dir(name: &str) -> bool {
     if name.starts_with('.') || SKIP_DIRS.contains(&name) {
         return true;
     }
+    if TOOL_DIRS.contains(&name.to_lowercase().as_str()) {
+        return true;
+    }
     Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
@@ -172,6 +178,20 @@ fn modified_secs(meta: &fs::Metadata) -> Option<i64> {
     i64::try_from(since.as_secs()).ok()
 }
 
+/// True when the file lives in a folder that a cloud service keeps in sync, so
+/// removing it here may remove it online too.
+fn cloud_synced(path: &Path) -> bool {
+    path.components().any(|c| {
+        let name = c.as_os_str().to_string_lossy().to_lowercase();
+        matches!(
+            name.as_str(),
+            "mega" | "megasync" | "googledrive" | "pcloud" | "pcloud drive" | "box"
+        ) || name.starts_with("dropbox")
+            || name.starts_with("onedrive")
+            || name.starts_with("google drive")
+    })
+}
+
 /// A short label for the kind of file, from its extension.
 pub(super) fn kind_for(path: &Path) -> &'static str {
     let ext = path
@@ -194,6 +214,14 @@ fn to_item(found: Found) -> Option<ScannedItem> {
     let canonical = fs::canonicalize(&found.path).ok()?;
     let path = found.path.to_string_lossy().into_owned();
     let kind = kind_for(&found.path);
+    let mut description = format!(
+        "{kind} file. This is one of your own files, not a cache. It is moved to the Trash, never deleted for good."
+    );
+    if cloud_synced(&found.path) {
+        description.push_str(
+            " It is in a folder that syncs to the cloud: removing it here may remove it online too.",
+        );
+    }
     Some(ScannedItem {
         item: CleanupItem {
             id: stable_id(&path),
@@ -204,9 +232,7 @@ fn to_item(found: Found) -> Option<ScannedItem> {
             module: "large_files".to_string(),
             size_bytes: found.size,
             status: Safety::Danger,
-            description: format!(
-                "{kind} file. This is one of your own files, not a cache. It is moved to the Trash, never deleted for good."
-            ),
+            description,
             blocked_by: None,
             last_active: found.modified,
         },
@@ -295,6 +321,9 @@ mod tests {
             "Photos.photoslibrary",
             "Thing.app/Contents",
             "Frameworks/Some.framework",
+            "flutter/bin/cache",
+            "sdk/system-images/android-37",
+            "Caches",
         ] {
             write(&d.path().join(dir).join("skipped.bin"), 300_000);
         }
@@ -352,6 +381,34 @@ mod tests {
         let items = find_large_files_with_limit(d.path(), MIN, MAX_RESULTS, &ignore, &hooks)
             .unwrap();
         assert_eq!(names(&items), vec!["shown.bin"]);
+    }
+
+    #[test]
+    fn files_in_cloud_synced_folders_carry_a_warning() {
+        let d = TempDir::new().unwrap();
+        write(&d.path().join("MEGA/clip.mov"), 300_000);
+        write(&d.path().join("Dropbox (Personal)/other.mov"), 300_000);
+        write(&d.path().join("local/plain.mov"), 300_000);
+        let items = run(d.path(), MAX_RESULTS, false).unwrap();
+        assert_eq!(items.len(), 3);
+        for item in &items {
+            let synced = item.item.path.contains("MEGA") || item.item.path.contains("Dropbox");
+            assert_eq!(
+                item.item.description.contains("syncs to the cloud"),
+                synced,
+                "{}",
+                item.item.path
+            );
+        }
+    }
+
+    #[test]
+    fn cloud_folder_names_are_recognised() {
+        assert!(cloud_synced(Path::new("/Users/a/MEGA/x.mov")));
+        assert!(cloud_synced(Path::new("/Users/a/OneDrive - Work/x.mov")));
+        assert!(cloud_synced(Path::new("/Users/a/Google Drive/x.mov")));
+        assert!(!cloud_synced(Path::new("/Users/a/Movies/x.mov")));
+        assert!(!cloud_synced(Path::new("/Users/a/megabytes/x.mov")));
     }
 
     #[test]
