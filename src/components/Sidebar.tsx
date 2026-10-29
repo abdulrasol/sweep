@@ -1,4 +1,4 @@
-import { Settings, Info, HardDrive, History, FileSearch } from 'lucide-react';
+import { Settings, Info, HardDrive, History, FileSearch, LayoutGrid } from 'lucide-react';
 import { formatBytes } from '../lib/tauri';
 import { useI18n, type MessageKey } from '../i18n';
 
@@ -19,6 +19,7 @@ const STEPS: { id: View; label: MessageKey; hint: MessageKey }[] = [
 
 const EXTRA: { id: View; label: MessageKey; icon: typeof Settings }[] = [
   { id: 'large', label: 'nav.large', icon: FileSearch },
+  { id: 'map', label: 'nav.map', icon: LayoutGrid },
   { id: 'history', label: 'nav.history', icon: History },
   { id: 'settings', label: 'nav.settings', icon: Settings },
   { id: 'about', label: 'nav.about', icon: Info },

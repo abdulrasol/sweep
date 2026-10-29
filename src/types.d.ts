@@ -33,6 +33,24 @@ declare global {
     disk_free: number;
   }
 
+  /** One square of the disk map (PLAN 4.4). */
+  interface MapEntry {
+    name: string;
+    path: string;
+    size: number;
+    is_dir: boolean;
+  }
+
+  /** Sizes of the direct children of one folder. */
+  interface DiskMap {
+    path: string;
+    total: number;
+    entries: MapEntry[];
+    /** Bytes and count of the entries too small to draw. */
+    other: number;
+    other_count: number;
+  }
+
   /** A set of identical files found by the duplicate search (PLAN 4.3b), oldest first. */
   interface DuplicateGroup {
     /** Space one copy takes on disk. */
@@ -72,5 +90,5 @@ declare global {
     by_day: HistoryDay[];
   }
 
-  type View = 'scan' | 'review' | 'cleanup' | 'large' | 'history' | 'settings' | 'about';
+  type View = 'scan' | 'review' | 'cleanup' | 'large' | 'map' | 'history' | 'settings' | 'about';
 }

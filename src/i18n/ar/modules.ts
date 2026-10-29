@@ -59,4 +59,5 @@ export const modules: Record<string, string> = {
   'module.docker.desc': 'ذاكرة البناء والحاويات المتوقفة والصور غير المستخدمة عبر docker CLI. لا تُمَسّ الأقراص (volumes) أبدًا.',
   'module.large_files.title': 'الملفات الكبيرة',
   'module.duplicates.title': 'الملفات المكررة',
+  'module.disk_map.title': 'خريطة القرص',
 };

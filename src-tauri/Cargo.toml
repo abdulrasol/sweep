@@ -1,6 +1,6 @@
 [package]
 name = "sweep"
-version = "0.2.0"
+version = "0.3.0"
 description = "Sweep - Refined Technical Utility"
 authors = ["AbdulRasol S. Al-Hilo"]
 edition = "2021"

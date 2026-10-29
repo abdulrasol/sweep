@@ -2298,6 +2298,11 @@ fn stable_id(s: &str) -> String {
 // Size
 // ---------------------------------------------------------------------------
 
+/// One disk-map square as a Trash-only `Danger` item (PLAN 4.4).
+pub fn map_item(path: &Path, size: u64) -> Option<ScannedItem> {
+    large::map_item(path, size)
+}
+
 /// The largest files under `base`, as `Danger` items that can only be moved to
 /// the Trash (PLAN 4.3). `None` when cancelled.
 pub fn find_large_files(
@@ -2465,7 +2470,7 @@ fn usage_split(path: &Path, depth: usize, cancelled: &(dyn Fn() -> bool + Sync))
 /// `disk_usage` that stops at a partial sum when the flag turns true.
 /// Big folders are measured on several threads (PLAN 3.4b); the result is the
 /// same as a single-threaded walk.
-fn disk_usage_cancellable(path: &Path, cancelled: &(dyn Fn() -> bool + Sync)) -> u64 {
+pub fn disk_usage_cancellable(path: &Path, cancelled: &(dyn Fn() -> bool + Sync)) -> u64 {
     usage_split(path, 0, cancelled).finish()
 }
 

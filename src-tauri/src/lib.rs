@@ -1,5 +1,6 @@
 mod access;
 mod cleanup_engine;
+mod disk_map;
 mod history;
 
 use cleanup_engine::{CleanupItem, DeleteMode, Env, Removed, ScannedItem};
@@ -158,6 +159,74 @@ fn search_base(path: &str) -> Result<PathBuf, String> {
         return Err("Choose an existing folder to search.".to_string());
     }
     Ok(base)
+}
+
+/// Sizes of the direct children of one folder, for the disk map (PLAN 4.4).
+/// Read-only: nothing here removes files.
+#[tauri::command]
+async fn get_disk_map(
+    control: State<'_, ScanControl>,
+    path: String,
+) -> Result<disk_map::DiskMap, String> {
+    let base = search_base(&path)?;
+
+    let cancelled = Arc::new(AtomicBool::new(false));
+    {
+        let mut guard = control.0.lock().map_err(lock_err)?;
+        *guard = cancelled.clone();
+    }
+
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let flag = &cancelled;
+        let map = disk_map::disk_map(&base, &|| flag.load(Ordering::Relaxed));
+        (map, flag.load(Ordering::Relaxed))
+    })
+    .await
+    .map_err(|e| format!("Disk map failed: {e}"))?;
+
+    match result {
+        (Some(map), _) => Ok(map),
+        (None, true) => Err("Search cancelled.".to_string()),
+        (None, false) => Err("Sweep cannot read this folder.".to_string()),
+    }
+}
+
+/// Turns squares picked in the disk map into removable items (PLAN 4.4). Only
+/// paths inside `base` are accepted, and they only ever go to the Trash.
+#[tauri::command]
+async fn register_map_items(
+    store: State<'_, Mutex<ScanStore>>,
+    base: String,
+    paths: Vec<String>,
+) -> Result<Vec<CleanupItem>, String> {
+    let base = search_base(&base)?;
+    let base_canonical = std::fs::canonicalize(&base).map_err(|e| format!("Cannot read the folder: {e}"))?;
+
+    let found = tauri::async_runtime::spawn_blocking(move || {
+        paths
+            .iter()
+            .filter_map(|p| {
+                let path = PathBuf::from(p);
+                let canonical = std::fs::canonicalize(&path).ok()?;
+                if canonical == base_canonical || !canonical.starts_with(&base_canonical) {
+                    return None;
+                }
+                let size = cleanup_engine::disk_usage_cancellable(&path, &|| false);
+                cleanup_engine::map_item(&path, size)
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| format!("Could not prepare the items: {e}"))?;
+
+    let items: Vec<CleanupItem> = found.iter().map(|s| s.item.clone()).collect();
+    let mut guard = store.lock().map_err(lock_err)?;
+    guard.items.retain(|_, v| v.item.module != "disk_map");
+    guard
+        .items
+        .extend(found.into_iter().map(|s| (s.item.id.clone(), s)));
+    add_search_roots(&mut guard, base);
+    Ok(items)
 }
 
 /// Removal is only allowed under the scan roots, and a search can run before any scan.
@@ -320,7 +389,10 @@ async fn cleanup_item(
         (item, guard.allowed_roots.clone(), guard.generation)
     };
     // The user's own files only ever go to the Trash, whatever mode the UI sent.
-    let mode = if item.item.module == "large_files" || item.item.module == "duplicates" {
+    let mode = if matches!(
+        item.item.module.as_str(),
+        "large_files" | "duplicates" | "disk_map"
+    ) {
         DeleteMode::TrashOnly
     } else {
         mode
@@ -572,6 +644,8 @@ pub fn run() {
             cancel_scan,
             find_large_files,
             find_duplicates,
+            get_disk_map,
+            register_map_items,
             cleanup_item,
             get_history,
             clear_history,

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, X, Loader2, Square, RefreshCw, FolderCog } from 'lucide-react';
 import { invoke, formatBytes } from '../lib/tauri';
 import { useI18n } from '../i18n';
+import { clearDiskMapCache } from '../lib/diskMapCache';
 
 interface ExecutionViewProps {
   items: CleanupItem[];
@@ -71,6 +72,8 @@ export default function ExecutionView({ items, deleteMode, onRunningChange, onSc
           }
         }
       }
+      // Sizes saved for the disk map are out of date after a removal.
+      clearDiskMapCache();
       setPhase(stopRequested.current ? 'stopped' : 'done');
       onRunningChange(false);
     };

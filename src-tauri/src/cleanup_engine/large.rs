@@ -273,6 +273,43 @@ pub(super) fn build_item(
     })
 }
 
+/// A `Danger` item for one square of the disk map (PLAN 4.4): a file or a
+/// whole folder the user picked. Symlinks are refused. Like every item built
+/// here it is only ever moved to the Trash.
+pub fn map_item(path: &Path, size: u64) -> Option<ScannedItem> {
+    let meta = fs::symlink_metadata(path).ok()?;
+    if meta.file_type().is_symlink() {
+        return None;
+    }
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64);
+    let found = Found {
+        path: path.to_path_buf(),
+        size,
+        len: meta.len(),
+        modified,
+    };
+    let mut scanned = build_item(
+        found,
+        "disk_map",
+        "Disk map",
+        "System & Apps",
+        "You picked it in the disk map, so Sweep only moves it to the Trash.",
+    )?;
+    if meta.is_dir() {
+        let kind = kind_for(path);
+        scanned.item.file_type = "Folder".to_string();
+        scanned.item.description = scanned
+            .item
+            .description
+            .replacen(&format!("{kind} file."), "Folder.", 1);
+    }
+    Some(scanned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,5 +489,33 @@ mod tests {
         assert_eq!(kind_for(Path::new("a.dng")), "Photo");
         assert_eq!(kind_for(Path::new("a.bin")), "File");
         assert_eq!(kind_for(Path::new("noext")), "File");
+    }
+
+    #[test]
+    fn map_item_is_a_trash_only_danger_item_for_files_and_folders() {
+        let d = TempDir::new().unwrap();
+        write(&d.path().join("movie.mp4"), 2_000);
+        write(&d.path().join("folder/a.bin"), 10);
+
+        let file = map_item(&d.path().join("movie.mp4"), 2_000).unwrap();
+        assert_eq!(file.item.module, "disk_map");
+        assert_eq!(file.item.status, Safety::Danger);
+        assert_eq!(file.item.size_bytes, 2_000);
+        assert_eq!(file.item.file_type, "Video");
+        assert!(matches!(file.action, Action::DeletePath));
+
+        let dir = map_item(&d.path().join("folder"), 10).unwrap();
+        assert_eq!(dir.item.file_type, "Folder");
+        assert!(dir.item.description.starts_with("Folder."));
+        assert!(map_item(&d.path().join("missing"), 1).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn map_item_refuses_symlinks() {
+        let d = TempDir::new().unwrap();
+        write(&d.path().join("real.bin"), 10);
+        std::os::unix::fs::symlink(d.path().join("real.bin"), d.path().join("link")).unwrap();
+        assert!(map_item(&d.path().join("link"), 10).is_none());
     }
 }

@@ -4,8 +4,9 @@ import { modules } from './ar/modules';
 import { shell } from './ar/shell';
 import { misc } from './ar/misc';
 import { files } from './ar/files';
+import { diskMap } from './ar/map';
 
 // The type makes a missing translation a compile error. Extra keys are the Arabic plural forms.
 export const ar: Record<MessageKey, string> & Record<string, string> = {
-  ...review, ...modules, ...shell, ...misc, ...files,
+  ...review, ...modules, ...shell, ...misc, ...files, ...diskMap,
 } as Record<MessageKey, string> & Record<string, string>;

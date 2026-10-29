@@ -59,4 +59,5 @@ export const modules = {
   'module.docker.desc': 'Build cache, stopped containers and unused images through the docker CLI. Volumes are never touched.',
   'module.large_files.title': 'Large files',
   'module.duplicates.title': 'Duplicate files',
+  'module.disk_map.title': 'Disk map',
 } as const;

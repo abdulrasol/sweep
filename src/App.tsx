@@ -10,6 +10,7 @@ import SettingsView from './views/SettingsView';
 import AboutView from './views/AboutView';
 import HistoryView from './views/HistoryView';
 import LargeFilesView from './views/LargeFilesView';
+import DiskMapView from './views/DiskMapView';
 import { invoke } from './lib/tauri';
 import { accentById } from './lib/accents';
 import { checkForUpdate, type UpdateState } from './lib/updates';
@@ -185,6 +186,8 @@ export default function App() {
         );
       case 'large':
         return <LargeFilesView scanPath={scanPath} ignoredPaths={ignoredPaths} onStartCleaning={startCleaning} />;
+      case 'map':
+        return <DiskMapView scanPath={scanPath} onStartCleaning={startCleaning} />;
       case 'history':
         return <HistoryView />;
       case 'settings':
