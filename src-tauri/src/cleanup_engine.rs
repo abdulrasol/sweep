@@ -2299,58 +2299,140 @@ pub fn disk_usage(path: &Path) -> u64 {
     disk_usage_cancellable(path, &|| false)
 }
 
-/// `disk_usage` that stops at a partial sum when the flag turns true.
-/// The flag is checked every 256 entries.
-fn disk_usage_cancellable(path: &Path, cancelled: &(dyn Fn() -> bool + Sync)) -> u64 {
+/// How many directory levels below the measured folder are split across
+/// threads. Deeper subtrees are walked by one thread.
+const SPLIT_DEPTH: usize = 5;
+
+/// Bytes counted so far under one subtree. Subtrees are measured on different
+/// threads and merged, so hard-link bookkeeping travels with the total.
+#[derive(Default)]
+struct Usage {
+    total: u64,
+    /// (dev, ino) -> (nlink, links seen, bytes), for files with several links.
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let mut total = 0u64;
-        // (dev, ino) -> (nlink, links seen, bytes)
-        let mut linked: HashMap<(u64, u64), (u64, u64, u64)> = HashMap::new();
-        let mut entries = 0usize;
-        for entry in WalkDir::new(path).follow_links(false).into_iter().flatten() {
-            entries += 1;
-            if entries.is_multiple_of(256) && cancelled() {
-                break;
-            }
-            let Ok(m) = entry.metadata() else { continue };
+    linked: HashMap<(u64, u64), (u64, u64, u64)>,
+}
+
+impl Usage {
+    /// Count one entry: allocated blocks on unix, file length elsewhere;
+    /// symlinks are never counted.
+    fn account(&mut self, m: &fs::Metadata) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
             if m.file_type().is_symlink() {
-                continue;
+                return;
             }
             let bytes = m.blocks() * 512;
             if m.is_dir() || m.nlink() <= 1 {
-                total += bytes;
+                self.total += bytes;
             } else {
-                let e = linked
+                let e = self
+                    .linked
                     .entry((m.dev(), m.ino()))
                     .or_insert((m.nlink(), 0, bytes));
                 e.1 += 1;
             }
         }
-        total
-            + linked
-                .values()
-                .filter(|(nlink, seen, _)| seen >= nlink)
-                .map(|(_, _, b)| b)
-                .sum::<u64>()
-    }
-    #[cfg(not(unix))]
-    {
-        let mut total = 0u64;
-        let mut entries = 0usize;
-        for entry in WalkDir::new(path).follow_links(false).into_iter().flatten() {
-            entries += 1;
-            if entries.is_multiple_of(256) && cancelled() {
-                break;
-            }
-            let Ok(m) = entry.metadata() else { continue };
+        #[cfg(not(unix))]
+        {
             if m.is_file() {
-                total += m.len();
+                self.total += m.len();
             }
         }
-        total
     }
+
+    fn merge(mut self, other: Usage) -> Usage {
+        self.total += other.total;
+        #[cfg(unix)]
+        {
+            let (mut big, small) = if self.linked.len() >= other.linked.len() {
+                (self.linked, other.linked)
+            } else {
+                (other.linked, self.linked)
+            };
+            for (key, value) in small {
+                big.entry(key)
+                    .and_modify(|e| e.1 += value.1)
+                    .or_insert(value);
+            }
+            self.linked = big;
+        }
+        self
+    }
+
+    /// A hard-linked file counts only when every link to it was seen.
+    fn finish(self) -> u64 {
+        #[cfg(unix)]
+        {
+            self.total
+                + self
+                    .linked
+                    .values()
+                    .filter(|(nlink, seen, _)| seen >= nlink)
+                    .map(|(_, _, b)| b)
+                    .sum::<u64>()
+        }
+        #[cfg(not(unix))]
+        {
+            self.total
+        }
+    }
+}
+
+/// Measure a subtree with one thread, checking the flag every 256 entries.
+fn usage_serial(path: &Path, cancelled: &(dyn Fn() -> bool + Sync)) -> Usage {
+    let mut usage = Usage::default();
+    let mut entries = 0usize;
+    for entry in WalkDir::new(path).follow_links(false).into_iter().flatten() {
+        entries += 1;
+        if entries.is_multiple_of(256) && cancelled() {
+            break;
+        }
+        let Ok(m) = entry.metadata() else { continue };
+        usage.account(&m);
+    }
+    usage
+}
+
+/// Measure a subtree, spreading the entries of its top `SPLIT_DEPTH` levels
+/// over the rayon pool. The result equals `usage_serial` for the same tree.
+fn usage_split(path: &Path, depth: usize, cancelled: &(dyn Fn() -> bool + Sync)) -> Usage {
+    // The measured folder itself is always counted, so a cancelled run still
+    // returns a partial sum.
+    if depth > 0 && cancelled() {
+        return Usage::default();
+    }
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return Usage::default();
+    };
+    if !meta.is_dir() {
+        let mut usage = Usage::default();
+        usage.account(&meta);
+        return usage;
+    }
+    if depth >= SPLIT_DEPTH {
+        // The serial walk counts this folder itself.
+        return usage_serial(path, cancelled);
+    }
+    let mut usage = Usage::default();
+    usage.account(&meta);
+    let Ok(read_dir) = fs::read_dir(path) else {
+        return usage;
+    };
+    let children: Vec<PathBuf> = read_dir.flatten().map(|e| e.path()).collect();
+    let below = children
+        .into_par_iter()
+        .map(|child| usage_split(&child, depth + 1, cancelled))
+        .reduce(Usage::default, Usage::merge);
+    usage.merge(below)
+}
+
+/// `disk_usage` that stops at a partial sum when the flag turns true.
+/// Big folders are measured on several threads (PLAN 3.4b); the result is the
+/// same as a single-threaded walk.
+fn disk_usage_cancellable(path: &Path, cancelled: &(dyn Fn() -> bool + Sync)) -> u64 {
+    usage_split(path, 0, cancelled).finish()
 }
 
 // ---------------------------------------------------------------------------
@@ -6479,10 +6561,106 @@ rm -f "{blob_str}""#
         }
 
         let full = disk_usage(&dir);
-        let partial = disk_usage_cancellable(&dir, &|| true);
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let partial = disk_usage_cancellable(&dir, &|| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 50
+        });
         assert!(partial > 0);
         assert!(partial < full, "partial {partial} is not below full {full}");
         assert_eq!(disk_usage_cancellable(&dir, &|| false), full);
+    }
+
+    // ----- Parallel folder measuring (PLAN 3.4b) ------------------------------
+
+    /// A tree deeper than SPLIT_DEPTH with files at every level.
+    fn deep_tree(root: &Path) {
+        let mut dir = root.to_path_buf();
+        for level in 0..(SPLIT_DEPTH + 3) {
+            write(&dir.join(format!("file{level}.bin")), 3_000 + level * 100);
+            write(&dir.join("sibling/a.bin"), 5_000);
+            dir = dir.join(format!("level{level}"));
+        }
+        write(&dir.join("leaf.bin"), 20_000);
+    }
+
+    #[test]
+    fn parallel_usage_equals_the_single_threaded_walk() {
+        let d = TempDir::new().unwrap();
+        let root = d.path().join("tree");
+        deep_tree(&root);
+        for i in 0..300 {
+            write(&root.join(format!("wide/f{i}.bin")), 700);
+        }
+        let serial = usage_serial(&root, &|| false).finish();
+        assert!(serial > 0);
+        assert_eq!(disk_usage_cancellable(&root, &|| false), serial);
+        assert_eq!(disk_usage(&root), serial);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parallel_usage_counts_hard_links_across_subtrees_once() {
+        let d = TempDir::new().unwrap();
+        let root = d.path().join("tree");
+        write(&root.join("a/shared.bin"), 40_000);
+        fs::create_dir_all(root.join("b")).unwrap();
+        fs::hard_link(root.join("a/shared.bin"), root.join("b/shared.bin")).unwrap();
+        write(&root.join("c/plain.bin"), 10_000);
+
+        // Both links live inside the tree, in different subtrees: counted once.
+        let serial = usage_serial(&root, &|| false).finish();
+        assert_eq!(disk_usage_cancellable(&root, &|| false), serial);
+
+        // Measuring only one subtree sees one of the two links: not counted.
+        let only_a = root.join("a");
+        let serial_a = usage_serial(&only_a, &|| false).finish();
+        assert_eq!(disk_usage_cancellable(&only_a, &|| false), serial_a);
+        assert!(serial_a < 40_000, "the hard link was counted without its twin");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parallel_usage_skips_symlinks() {
+        let d = TempDir::new().unwrap();
+        let outside = d.path().join("outside");
+        write(&outside.join("big.bin"), 200_000);
+        let root = d.path().join("tree");
+        write(&root.join("real/a.bin"), 1_000);
+        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+        let measured = disk_usage_cancellable(&root, &|| false);
+        assert_eq!(measured, usage_serial(&root, &|| false).finish());
+        assert!(measured < 100_000, "the symlink target was followed");
+        // A symlink as the measured path counts nothing.
+        assert_eq!(disk_usage_cancellable(&root.join("link"), &|| false), 0);
+    }
+
+    #[test]
+    fn parallel_usage_of_a_file_and_of_a_missing_path() {
+        let d = TempDir::new().unwrap();
+        let file = d.path().join("one.bin");
+        write(&file, 12_345);
+        assert_eq!(
+            disk_usage_cancellable(&file, &|| false),
+            usage_serial(&file, &|| false).finish()
+        );
+        assert!(disk_usage_cancellable(&file, &|| false) > 0);
+        assert_eq!(disk_usage_cancellable(&d.path().join("missing"), &|| false), 0);
+    }
+
+    #[test]
+    fn parallel_usage_stops_when_cancelled_midway() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let d = TempDir::new().unwrap();
+        let root = d.path().join("tree");
+        for i in 0..200 {
+            write(&root.join(format!("d{}/f{i}.bin", i % 10)), 100);
+        }
+        let full = disk_usage(&root);
+        let calls = AtomicUsize::new(0);
+        let cancel_after_50 = || calls.fetch_add(1, Ordering::Relaxed) >= 50;
+        let partial = disk_usage_cancellable(&root, &cancel_after_50);
+        assert!(partial > 0);
+        assert!(partial < full, "partial {partial} is not below full {full}");
     }
 
     // ----- Parallel project walk (PLAN 3.4) ----------------------------------
