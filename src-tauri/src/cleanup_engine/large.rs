@@ -49,10 +49,14 @@ const PACKAGE_EXTENSIONS: &[&str] = &[
 /// Tool folders whose big files are not the user's own (compared in lower case).
 const TOOL_DIRS: &[&str] = &["cache", "caches", "system-images"];
 
-struct Found {
-    path: PathBuf,
-    size: u64,
-    modified: Option<i64>,
+/// One file the walk found.
+pub(super) struct Found {
+    pub(super) path: PathBuf,
+    /// Space the file takes on disk.
+    pub(super) size: u64,
+    /// Length of its contents.
+    pub(super) len: u64,
+    pub(super) modified: Option<i64>,
 }
 
 /// Files of at least `min_bytes` under `base`, largest first, as `Danger`
@@ -73,16 +77,26 @@ fn find_large_files_with_limit(
     is_ignored: &(dyn Fn(&Path) -> bool + Sync),
     hooks: &ScanHooks<'_>,
 ) -> Option<Vec<ScannedItem>> {
+    let mut found = collect_files(base, min_bytes, is_ignored, hooks)?;
+    found.sort_by(|a, b| b.size.cmp(&a.size).then_with(|| a.path.cmp(&b.path)));
+    found.truncate(limit);
+    Some(found.into_iter().filter_map(to_item).collect())
+}
+
+/// Every file of at least `min_bytes` under `base` that the walk does not skip.
+/// `None` when cancelled.
+pub(super) fn collect_files(
+    base: &Path,
+    min_bytes: u64,
+    is_ignored: &(dyn Fn(&Path) -> bool + Sync),
+    hooks: &ScanHooks<'_>,
+) -> Option<Vec<Found>> {
     let found = Mutex::new(Vec::new());
     walk(base, 0, min_bytes, is_ignored, hooks, &found);
     if (hooks.cancelled)() {
         return None;
     }
-
-    let mut found = found.into_inner().unwrap_or_else(|e| e.into_inner());
-    found.sort_by(|a, b| b.size.cmp(&a.size).then_with(|| a.path.cmp(&b.path)));
-    found.truncate(limit);
-    Some(found.into_iter().filter_map(to_item).collect())
+    Some(found.into_inner().unwrap_or_else(|e| e.into_inner()))
 }
 
 /// One folder of the parallel walk: files are measured here, subfolders are
@@ -125,6 +139,7 @@ fn walk(
                 local.push(Found {
                     path,
                     size,
+                    len: meta.len(),
                     modified: modified_secs(&meta),
                 });
             }
@@ -211,12 +226,28 @@ pub(super) fn kind_for(path: &Path) -> &'static str {
 }
 
 fn to_item(found: Found) -> Option<ScannedItem> {
+    build_item(
+        found,
+        "large_files",
+        "Large File",
+        "Large files",
+        "This is one of your own files, not a cache. It is moved to the Trash, never deleted for good.",
+    )
+}
+
+/// A `Danger` item for one of the user's files. `note` is the sentence that
+/// explains why it is listed; the cloud warning is added when it applies.
+pub(super) fn build_item(
+    found: Found,
+    module: &str,
+    category: &str,
+    group: &str,
+    note: &str,
+) -> Option<ScannedItem> {
     let canonical = fs::canonicalize(&found.path).ok()?;
     let path = found.path.to_string_lossy().into_owned();
     let kind = kind_for(&found.path);
-    let mut description = format!(
-        "{kind} file. This is one of your own files, not a cache. It is moved to the Trash, never deleted for good."
-    );
+    let mut description = format!("{kind} file. {note}");
     if cloud_synced(&found.path) {
         description.push_str(
             " It is in a folder that syncs to the cloud: removing it here may remove it online too.",
@@ -227,9 +258,9 @@ fn to_item(found: Found) -> Option<ScannedItem> {
             id: stable_id(&path),
             path,
             file_type: kind.to_string(),
-            category: "Large File".to_string(),
-            group: "Large files".to_string(),
-            module: "large_files".to_string(),
+            category: category.to_string(),
+            group: group.to_string(),
+            module: module.to_string(),
             size_bytes: found.size,
             status: Safety::Danger,
             description,

@@ -58,6 +58,9 @@ export const GLOBAL_MODULES: ModuleDef[] = [
 const TITLES = new Map(
   [...PROJECT_MODULES, ...GLOBAL_MODULES].map(m => [m.id, m.title]),
 );
+// Results that do not come from a Scan card.
+TITLES.set('large_files', 'Large files');
+TITLES.set('duplicates', 'Duplicate files');
 
 /** Card title for a module id, or the id itself when it is unknown. */
 export function moduleTitle(id: string): string {

@@ -10,32 +10,73 @@ interface LargeFilesViewProps {
   onStartCleaning: (items: CleanupItem[]) => void;
 }
 
-const MIN_SIZES_MB = [100, 250, 500, 1000, 2000];
+type Mode = 'large' | 'duplicates';
+
+const MODES: { id: Mode; label: string; command: string; sizes: number[]; defaultMb: number; intro: string }[] = [
+  {
+    id: 'large',
+    label: 'Large files',
+    command: 'find_large_files',
+    sizes: [100, 250, 500, 1000, 2000],
+    defaultMb: 500,
+    intro: 'Finds the biggest files you may have forgotten, like videos, archives and disk images.',
+  },
+  {
+    id: 'duplicates',
+    label: 'Duplicates',
+    command: 'find_duplicates',
+    sizes: [10, 50, 100, 250, 500],
+    defaultMb: 50,
+    intro: 'Finds files with exactly the same contents, so you can keep one copy and remove the rest.',
+  },
+];
 
 const tildePath = (path: string) => path.replace(/^\/Users\/[^/]+/, '~');
 const fileName = (path: string) => path.split('/').filter(Boolean).pop() ?? path;
 const parentPath = (path: string) => tildePath(path.split('/').slice(0, -1).join('/') || '/');
+const sizeLabel = (mb: number) => (mb >= 1000 ? `${mb / 1000} GB` : `${mb} MB`);
 
 export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning }: LargeFilesViewProps) {
+  const [mode, setMode] = useState<Mode>('large');
   // An empty folder means the home folder; the backend resolves it.
   const [folder, setFolder] = useState('');
   const [minMb, setMinMb] = useState(500);
-  const [items, setItems] = useState<CleanupItem[] | null>(null);
+  const [files, setFiles] = useState<CleanupItem[] | null>(null);
+  const [groups, setGroups] = useState<DuplicateGroup[] | null>(null);
   const [searchedFolder, setSearchedFolder] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmText, setConfirmText] = useState('');
 
-  const search = async () => {
-    setBusy(true);
-    setError(null);
-    setItems(null);
+  const current = MODES.find(m => m.id === mode) ?? MODES[0];
+
+  const reset = () => {
+    setFiles(null);
+    setGroups(null);
     setSelected(new Set());
     setConfirmText('');
+    setError(null);
+  };
+
+  const switchMode = (next: Mode) => {
+    if (busy || next === mode) return;
+    const def = MODES.find(m => m.id === next) ?? MODES[0];
+    setMode(next);
+    setMinMb(def.defaultMb);
+    reset();
+  };
+
+  const search = async () => {
+    setBusy(true);
+    reset();
     try {
-      const data = await invoke<CleanupItem[]>('find_large_files', { path: folder, minMb, ignoredPaths });
-      setItems(data);
+      const args = { path: folder, minMb, ignoredPaths };
+      if (mode === 'large') {
+        setFiles(await invoke<CleanupItem[]>(current.command, args));
+      } else {
+        setGroups(await invoke<DuplicateGroup[]>(current.command, args));
+      }
       setSearchedFolder(folder);
     } catch (err) {
       const message = typeof err === 'string' ? err : String(err);
@@ -70,19 +111,74 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
     invoke('reveal_item', { id }).catch(() => {});
   };
 
-  const chosen = (items ?? []).filter(i => selected.has(i.id));
+  /** Select every copy except the oldest one of each set. */
+  const selectExtras = () => {
+    setSelected(new Set((groups ?? []).flatMap(g => g.items.slice(1).map(i => i.id))));
+  };
+
+  /** The last unselected copy of a set cannot be selected: one copy always stays. */
+  const isLastCopy = (group: DuplicateGroup, item: CleanupItem) =>
+    !selected.has(item.id) && group.items.every(other => other.id === item.id || selected.has(other.id));
+
+  const flat = mode === 'large' ? files ?? [] : (groups ?? []).flatMap(g => g.items);
+  const chosen = flat.filter(i => selected.has(i.id));
   const chosenBytes = chosen.reduce((sum, i) => sum + i.size_bytes, 0);
   const canStart = chosen.length > 0 && confirmText === 'DELETE';
   const nowMs = Date.now();
   const where = searchedFolder ? tildePath(searchedFolder) : 'your home folder';
+  const wastedTotal = (groups ?? []).reduce((sum, g) => sum + g.wasted, 0);
+
+  const renderRow = (item: CleanupItem, lastCopy: boolean) => (
+    <li key={item.id} className="flex items-center gap-3 px-5 py-3">
+      <input
+        type="checkbox"
+        checked={selected.has(item.id)}
+        disabled={lastCopy}
+        onChange={() => toggle(item.id)}
+        aria-label={`Select ${fileName(item.path)}`}
+        title={lastCopy ? 'Keep at least one copy' : undefined}
+        className="w-4 h-4 accent-[var(--color-primary)] shrink-0 disabled:opacity-40"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-medium truncate" title={item.path}>{fileName(item.path)}</span>
+          <span className="text-[11px] px-1.5 py-0.5 rounded bg-surface-bright text-on-surface/60 shrink-0">{item.file_type}</span>
+        </div>
+        <div className="text-xs text-on-surface/50 truncate font-mono" title={item.path}>{parentPath(item.path)}</div>
+        {item.last_active !== null && (
+          <div className="text-[11px] text-on-surface/45">Modified {formatAge(item.last_active, nowMs)}</div>
+        )}
+        {item.description.includes('syncs to the cloud') && (
+          <div className="text-[11px] text-warning">In a cloud-synced folder: removing it may remove it online too.</div>
+        )}
+      </div>
+      <button onClick={() => reveal(item.id)} className="text-xs text-on-surface/60 hover:text-on-surface shrink-0">
+        Show in Finder
+      </button>
+      <span className="w-24 text-right text-sm tabular-nums shrink-0">{formatBytes(item.size_bytes)}</span>
+    </li>
+  );
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8 space-y-5">
-      <header className="space-y-1">
-        <h2 className="text-2xl font-semibold tracking-tight">Large files</h2>
+      <header className="space-y-3">
+        <h2 className="text-2xl font-semibold tracking-tight">Large files and duplicates</h2>
+        <div className="inline-flex rounded-lg border border-outline p-0.5" role="tablist">
+          {MODES.map(m => (
+            <button
+              key={m.id}
+              role="tab"
+              aria-selected={mode === m.id}
+              onClick={() => switchMode(m.id)}
+              disabled={busy}
+              className={`px-3 py-1.5 rounded-md text-sm transition-colors ${mode === m.id ? 'bg-surface-bright font-semibold' : 'text-on-surface/60 hover:text-on-surface'}`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
         <p className="text-sm text-on-surface/60">
-          Finds the biggest files you may have forgotten, like videos, archives and disk images.
-          These are your own files, so Sweep only moves them to the Trash and asks you to confirm.
+          {current.intro} These are your own files, so Sweep only moves them to the Trash and asks you to confirm.
         </p>
       </header>
 
@@ -117,21 +213,21 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
 
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-on-surface/70">
-            Bigger than
+            {mode === 'large' ? 'Bigger than' : 'Files bigger than'}
             <select
               value={minMb}
               onChange={(e) => setMinMb(Number(e.target.value))}
               className="bg-surface-dim border border-outline rounded-lg px-3 py-1.5 text-sm outline-none focus:border-primary/60"
             >
-              {MIN_SIZES_MB.map(mb => (
-                <option key={mb} value={mb}>{mb >= 1000 ? `${mb / 1000} GB` : `${mb} MB`}</option>
+              {current.sizes.map(mb => (
+                <option key={mb} value={mb}>{sizeLabel(mb)}</option>
               ))}
             </select>
           </label>
           {busy ? (
             <>
               <span className="flex items-center gap-2 text-sm text-on-surface/60">
-                <Loader2 className="w-4 h-4 animate-spin" /> Searching…
+                <Loader2 className="w-4 h-4 animate-spin" /> {mode === 'large' ? 'Searching…' : 'Searching and comparing files…'}
               </span>
               <button onClick={cancel} className="px-3 py-1.5 rounded-lg border border-outline text-sm text-on-surface/70 hover:text-on-surface">
                 Cancel
@@ -142,60 +238,58 @@ export default function LargeFilesView({ scanPath, ignoredPaths, onStartCleaning
               onClick={search}
               className="px-4 py-2 bg-on-surface text-surface rounded-lg font-medium text-sm hover:opacity-90 active:scale-[0.98] transition"
             >
-              Find large files
+              {mode === 'large' ? 'Find large files' : 'Find duplicates'}
             </button>
           )}
         </div>
         <p className="text-xs text-on-surface/45">
-          Skipped on purpose: hidden folders, Library, build and dependency folders, app and library bundles,
+          Skipped on purpose: hidden folders, Library, build, cache and dependency folders, app and library bundles,
           and files with another hard link.
         </p>
       </section>
 
       {error && <p className="text-sm text-error">{error}</p>}
 
-      {items !== null && items.length === 0 && (
-        <p className="text-sm text-on-surface/60">
-          No files bigger than {minMb >= 1000 ? `${minMb / 1000} GB` : `${minMb} MB`} in {where}.
-        </p>
+      {mode === 'large' && files !== null && files.length === 0 && (
+        <p className="text-sm text-on-surface/60">No files bigger than {sizeLabel(minMb)} in {where}.</p>
+      )}
+      {mode === 'duplicates' && groups !== null && groups.length === 0 && (
+        <p className="text-sm text-on-surface/60">No identical files bigger than {sizeLabel(minMb)} in {where}.</p>
       )}
 
-      {items !== null && items.length > 0 && (
+      {mode === 'large' && files !== null && files.length > 0 && (
         <section className="bg-surface-container border border-outline rounded-2xl overflow-hidden">
           <div className="px-5 py-3 border-b border-outline text-sm text-on-surface/60 tabular-nums">
-            {items.length} {items.length === 1 ? 'file' : 'files'} in {where} · {formatBytes(items.reduce((s, i) => s + i.size_bytes, 0))}
+            {files.length} {files.length === 1 ? 'file' : 'files'} in {where} · {formatBytes(files.reduce((s, i) => s + i.size_bytes, 0))}
           </div>
-          <ul className="divide-y divide-outline">
-            {items.map(item => (
-              <li key={item.id} className="flex items-center gap-3 px-5 py-3">
-                <input
-                  type="checkbox"
-                  checked={selected.has(item.id)}
-                  onChange={() => toggle(item.id)}
-                  aria-label={`Select ${fileName(item.path)}`}
-                  className="w-4 h-4 accent-[var(--color-primary)] shrink-0"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-sm font-medium truncate" title={item.path}>{fileName(item.path)}</span>
-                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-surface-bright text-on-surface/60 shrink-0">{item.file_type}</span>
-                  </div>
-                  <div className="text-xs text-on-surface/50 truncate font-mono" title={item.path}>{parentPath(item.path)}</div>
-                  {item.last_active !== null && (
-                    <div className="text-[11px] text-on-surface/45">Modified {formatAge(item.last_active, nowMs)}</div>
-                  )}
-                </div>
-                <button
-                  onClick={() => reveal(item.id)}
-                  className="text-xs text-on-surface/60 hover:text-on-surface shrink-0"
-                >
-                  Show in Finder
-                </button>
-                <span className="w-24 text-right text-sm tabular-nums shrink-0">{formatBytes(item.size_bytes)}</span>
-              </li>
-            ))}
-          </ul>
+          <ul className="divide-y divide-outline">{files.map(item => renderRow(item, false))}</ul>
         </section>
+      )}
+
+      {mode === 'duplicates' && groups !== null && groups.length > 0 && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-on-surface/60 tabular-nums">
+              {groups.length} {groups.length === 1 ? 'set' : 'sets'} in {where} · {formatBytes(wastedTotal)} can be freed
+            </p>
+            <button
+              onClick={selectExtras}
+              className="px-3 py-1.5 rounded-lg border border-outline text-sm text-on-surface/70 hover:text-on-surface"
+            >
+              Keep the oldest, select the rest
+            </button>
+          </div>
+          {groups.map(group => (
+            <section key={group.items[0].id} className="bg-surface-container border border-outline rounded-2xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-outline text-sm text-on-surface/60 tabular-nums">
+                {group.items.length} identical copies · {formatBytes(group.size_each)} each · {formatBytes(group.wasted)} can be freed
+              </div>
+              <ul className="divide-y divide-outline">
+                {group.items.map(item => renderRow(item, isLastCopy(group, item)))}
+              </ul>
+            </section>
+          ))}
+        </>
       )}
 
       {chosen.length > 0 && (

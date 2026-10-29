@@ -27,6 +27,7 @@ mod brew;
 mod conda;
 mod dart;
 mod docker;
+mod duplicates;
 mod editors;
 mod go;
 mod large;
@@ -2308,6 +2309,21 @@ pub fn find_large_files(
     let ignored: Vec<PathBuf> = ignored_paths.iter().map(PathBuf::from).collect();
     let is_ignored = |p: &Path| ignored.iter().any(|i| p.starts_with(i));
     large::find_large_files(base, min_bytes.max(1), &is_ignored, hooks)
+}
+
+pub use duplicates::ScannedGroup;
+
+/// Sets of identical files under `base`, biggest waste first, as `Danger` items
+/// that can only be moved to the Trash (PLAN 4.3b). `None` when cancelled.
+pub fn find_duplicate_files(
+    base: &Path,
+    min_bytes: u64,
+    ignored_paths: &[String],
+    hooks: &ScanHooks<'_>,
+) -> Option<Vec<ScannedGroup>> {
+    let ignored: Vec<PathBuf> = ignored_paths.iter().map(PathBuf::from).collect();
+    let is_ignored = |p: &Path| ignored.iter().any(|i| p.starts_with(i));
+    duplicates::find_duplicates(base, min_bytes.max(1), &is_ignored, hooks)
 }
 
 /// Bytes that would actually be freed by deleting `path` (PLAN 1.1).

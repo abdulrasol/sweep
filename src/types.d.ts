@@ -33,6 +33,15 @@ declare global {
     disk_free: number;
   }
 
+  /** A set of identical files found by the duplicate search (PLAN 4.3b), oldest first. */
+  interface DuplicateGroup {
+    /** Space one copy takes on disk. */
+    size_each: number;
+    /** Space freed by removing every copy but one. */
+    wasted: number;
+    items: CleanupItem[];
+  }
+
   /** Totals for one tool in the cleanup history (PLAN 4.5). */
   interface HistoryModule {
     module: string;

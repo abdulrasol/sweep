@@ -19,6 +19,9 @@ struct ScanStore {
     allowed_roots: Vec<PathBuf>,
     /// Bumped on every scan, so a failed cleanup never puts an item back into a newer scan.
     generation: u64,
+    /// For each duplicate-file item, the paths of the other copies of that file. A copy is
+    /// only removed while at least one of them still exists (PLAN 4.3b).
+    duplicate_siblings: HashMap<String, Vec<PathBuf>>,
 }
 
 /// Flag for the scan that is running now, so the UI can cancel it (PLAN 3.5).
@@ -108,14 +111,7 @@ async fn find_large_files(
     min_mb: u64,
     ignored_paths: Vec<String>,
 ) -> Result<Vec<CleanupItem>, String> {
-    let base = if path.is_empty() {
-        dirs::home_dir().ok_or("Cannot find your home folder.")?
-    } else {
-        PathBuf::from(&path)
-    };
-    if !base.is_dir() {
-        return Err("Choose an existing folder to search.".to_string());
-    }
+    let base = search_base(&path)?;
     let min_bytes = min_mb.clamp(10, 100_000).saturating_mul(1_000_000);
 
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -147,16 +143,112 @@ async fn find_large_files(
     guard
         .items
         .extend(found.into_iter().map(|s| (s.item.id.clone(), s)));
-    // Removal is only allowed under these roots; a search can run before any scan.
+    add_search_roots(&mut guard, base);
+    Ok(items)
+}
+
+/// The folder a large-file or duplicate search runs in: the home folder when `path` is empty.
+fn search_base(path: &str) -> Result<PathBuf, String> {
+    let base = if path.is_empty() {
+        dirs::home_dir().ok_or("Cannot find your home folder.")?
+    } else {
+        PathBuf::from(path)
+    };
+    if !base.is_dir() {
+        return Err("Choose an existing folder to search.".to_string());
+    }
+    Ok(base)
+}
+
+/// Removal is only allowed under the scan roots, and a search can run before any scan.
+fn add_search_roots(store: &mut ScanStore, base: PathBuf) {
     let mut roots: Vec<PathBuf> = vec![base];
     roots.extend(dirs::home_dir());
     for root in roots {
         let root = std::fs::canonicalize(&root).unwrap_or(root);
-        if !guard.allowed_roots.contains(&root) {
-            guard.allowed_roots.push(root);
+        if !store.allowed_roots.contains(&root) {
+            store.allowed_roots.push(root);
         }
     }
-    Ok(items)
+}
+
+/// A set of identical files found by `find_duplicates`.
+#[derive(serde::Serialize)]
+struct DuplicateGroup {
+    /// Space one copy takes on disk.
+    size_each: u64,
+    /// Space freed by removing every copy but one.
+    wasted: u64,
+    items: Vec<CleanupItem>,
+}
+
+/// Look for identical files under `path` (the home folder when empty). Like the large-file
+/// search, the items join the last scan and only ever go to the Trash, and the last
+/// remaining copy of a set is never removed (PLAN 4.3b).
+#[tauri::command]
+async fn find_duplicates(
+    store: State<'_, Mutex<ScanStore>>,
+    control: State<'_, ScanControl>,
+    path: String,
+    min_mb: u64,
+    ignored_paths: Vec<String>,
+) -> Result<Vec<DuplicateGroup>, String> {
+    let base = search_base(&path)?;
+    let min_bytes = min_mb.clamp(1, 100_000).saturating_mul(1_000_000);
+
+    let cancelled = Arc::new(AtomicBool::new(false));
+    {
+        let mut guard = control.0.lock().map_err(lock_err)?;
+        *guard = cancelled.clone();
+    }
+
+    let search_base = base.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let flag = &cancelled;
+        let progress = |_: cleanup_engine::ScanProgress| {};
+        let hooks = cleanup_engine::ScanHooks {
+            cancelled: &|| flag.load(Ordering::Relaxed),
+            progress: &progress,
+        };
+        cleanup_engine::find_duplicate_files(&search_base, min_bytes, &ignored_paths, &hooks)
+    })
+    .await
+    .map_err(|e| format!("Search failed: {e}"))?;
+
+    let Some(found) = result else {
+        return Err("Search cancelled.".to_string());
+    };
+
+    let groups: Vec<DuplicateGroup> = found
+        .iter()
+        .map(|g| DuplicateGroup {
+            size_each: g.size_each,
+            wasted: g.wasted,
+            items: g.items.iter().map(|s| s.item.clone()).collect(),
+        })
+        .collect();
+
+    let mut guard = store.lock().map_err(lock_err)?;
+    guard.items.retain(|_, v| v.item.module != "duplicates");
+    guard.duplicate_siblings.clear();
+    for group in found {
+        for scanned in &group.items {
+            let others: Vec<PathBuf> = group
+                .items
+                .iter()
+                .filter(|other| other.item.id != scanned.item.id)
+                .map(|other| PathBuf::from(&other.item.path))
+                .collect();
+            guard
+                .duplicate_siblings
+                .insert(scanned.item.id.clone(), others);
+        }
+        for scanned in group.items {
+            guard.items.insert(scanned.item.id.clone(), scanned);
+        }
+    }
+    add_search_roots(&mut guard, base);
+    Ok(groups)
 }
 
 /// Cancel the scan that is running now. Does not touch any files.
@@ -207,6 +299,20 @@ async fn cleanup_item(
     // effect twice in development) finds nothing and never deletes the same path concurrently.
     let (item, roots, generation) = {
         let mut guard = store.lock().map_err(lock_err)?;
+        // Never remove the last remaining copy of a duplicate set.
+        if let Some(siblings) = guard.duplicate_siblings.get(&id) {
+            let another_copy_exists = siblings.iter().any(|p| {
+                std::fs::symlink_metadata(p)
+                    .map(|m| m.is_file())
+                    .unwrap_or(false)
+            });
+            if !another_copy_exists {
+                return Err(
+                    "This is the last remaining copy. Keep at least one copy of a duplicate set."
+                        .into(),
+                );
+            }
+        }
         let item = guard
             .items
             .remove(&id)
@@ -214,7 +320,7 @@ async fn cleanup_item(
         (item, guard.allowed_roots.clone(), guard.generation)
     };
     // The user's own files only ever go to the Trash, whatever mode the UI sent.
-    let mode = if item.item.module == "large_files" {
+    let mode = if item.item.module == "large_files" || item.item.module == "duplicates" {
         DeleteMode::TrashOnly
     } else {
         mode
@@ -465,6 +571,7 @@ pub fn run() {
             scan_environment,
             cancel_scan,
             find_large_files,
+            find_duplicates,
             cleanup_item,
             get_history,
             clear_history,
