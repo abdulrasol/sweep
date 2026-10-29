@@ -29,6 +29,7 @@ mod dart;
 mod docker;
 mod editors;
 mod go;
+mod large;
 mod native_commands;
 mod node;
 mod rust;
@@ -112,6 +113,10 @@ pub enum DeleteMode {
     Permanent,
     /// Move the path to the system Trash when that is safe, else delete it.
     Trash,
+    /// Move the path to the system Trash and never delete it for good. Used for
+    /// the user's own files (PLAN 4.3); fails when the Trash cannot take it.
+    /// The UI cannot ask for this mode, the engine picks it per item.
+    TrashOnly,
 }
 
 impl DeleteMode {
@@ -2292,6 +2297,19 @@ fn stable_id(s: &str) -> String {
 // Size
 // ---------------------------------------------------------------------------
 
+/// The largest files under `base`, as `Danger` items that can only be moved to
+/// the Trash (PLAN 4.3). `None` when cancelled.
+pub fn find_large_files(
+    base: &Path,
+    min_bytes: u64,
+    ignored_paths: &[String],
+    hooks: &ScanHooks<'_>,
+) -> Option<Vec<ScannedItem>> {
+    let ignored: Vec<PathBuf> = ignored_paths.iter().map(PathBuf::from).collect();
+    let is_ignored = |p: &Path| ignored.iter().any(|i| p.starts_with(i));
+    large::find_large_files(base, min_bytes.max(1), &is_ignored, hooks)
+}
+
 /// Bytes that would actually be freed by deleting `path` (PLAN 1.1).
 /// Counts allocated blocks, never follows symlinks, and counts a hard-linked file
 /// only when every link to it lives inside `path`.
@@ -2575,13 +2593,20 @@ pub fn delete_path_with(
     // The Trash is used only for a small, real entry that is not the Trash itself.
     // A symlink is always removed as a link, never moved.
     let trash_component = std::ffi::OsStr::new(".Trash");
-    let use_trash = mode == DeleteMode::Trash
+    let trash_only = mode == DeleteMode::TrashOnly;
+    let use_trash = matches!(mode, DeleteMode::Trash | DeleteMode::TrashOnly)
         && !meta.file_type().is_symlink()
-        && item.item.size_bytes <= TRASH_MAX_BYTES
+        && (trash_only || item.item.size_bytes <= TRASH_MAX_BYTES)
         && item.item.category != "Trash"
         && !canonical
             .components()
             .any(|c| c.as_os_str() == trash_component);
+    if trash_only && !use_trash {
+        return Err(format!(
+            "{} can only be moved to the Trash, and that is not possible for this item.",
+            path.display()
+        ));
+    }
 
     if use_trash {
         trasher(path)
@@ -3204,6 +3229,105 @@ mod tests {
         assert!(!trashed);
         assert_eq!(calls.get(), 0);
         assert!(!file.exists());
+    }
+
+    #[test]
+    fn trash_only_moves_a_huge_item_to_the_trash() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let fake = root.join("fake-trash");
+        fs::create_dir_all(&fake).unwrap();
+        let file = root.join("code/movies/huge.mov");
+        write(&file, 10);
+        let roots = vec![root.join("code")];
+        let protected = protected_paths(&root.join("home"));
+
+        let dest = fake.join("huge.mov");
+        let trasher = |p: &Path| -> Result<(), String> {
+            fs::rename(p, &dest).map_err(|e| e.to_string())
+        };
+        // Above the size limit that makes Trash mode delete for good.
+        let item = item_with(&file, "Large File", TRASH_MAX_BYTES + 1);
+        let trashed =
+            delete_path_with(&item, &roots, &protected, DeleteMode::TrashOnly, &trasher).unwrap();
+        assert!(trashed);
+        assert!(!file.exists());
+        assert!(dest.exists());
+    }
+
+    #[test]
+    fn trash_only_keeps_the_file_when_the_trash_fails() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let file = root.join("code/movies/huge.mov");
+        write(&file, 10);
+        let roots = vec![root.join("code")];
+        let protected = protected_paths(&root.join("home"));
+
+        let trasher = |_: &Path| -> Result<(), String> { Err("no trash here".to_string()) };
+        let err = delete_path_with(
+            &scanned(&file),
+            &roots,
+            &protected,
+            DeleteMode::TrashOnly,
+            &trasher,
+        )
+        .unwrap_err();
+        assert!(err.contains("Trash"), "{err}");
+        assert!(file.exists());
+    }
+
+    #[test]
+    fn trash_only_never_deletes_inside_the_trash_for_good() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let file = root.join("code/.Trash/old.mov");
+        write(&file, 10);
+        let roots = vec![root.join("code")];
+        let protected = protected_paths(&root.join("home"));
+
+        let err = delete_path_with(
+            &scanned(&file),
+            &roots,
+            &protected,
+            DeleteMode::TrashOnly,
+            &no_trasher,
+        )
+        .unwrap_err();
+        assert!(err.contains("only be moved to the Trash"), "{err}");
+        assert!(file.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn trash_only_refuses_a_symlink_instead_of_removing_it() {
+        let d = TempDir::new().unwrap();
+        let root = fs::canonicalize(d.path()).unwrap();
+        let target = root.join("code/real.mov");
+        write(&target, 10);
+        let link = root.join("code/link.mov");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let roots = vec![root.join("code")];
+        let protected = protected_paths(&root.join("home"));
+
+        let err = delete_path_with(
+            &scanned(&link),
+            &roots,
+            &protected,
+            DeleteMode::TrashOnly,
+            &no_trasher,
+        )
+        .unwrap_err();
+        assert!(err.contains("only be moved to the Trash"), "{err}");
+        assert!(fs::symlink_metadata(&link).is_ok());
+        assert!(target.exists());
+    }
+
+    #[test]
+    fn the_ui_cannot_ask_for_trash_only() {
+        assert_eq!(DeleteMode::parse("trash"), Some(DeleteMode::Trash));
+        assert_eq!(DeleteMode::parse("trash_only"), None);
+        assert_eq!(DeleteMode::parse("TrashOnly"), None);
     }
 
     #[test]

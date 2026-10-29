@@ -97,6 +97,68 @@ async fn scan_environment(
     Ok(items)
 }
 
+/// Look for big files under `path` (the home folder when empty). The results join the
+/// items of the last scan, so they are removed through `cleanup_item` like any other
+/// item, but only ever to the Trash (PLAN 4.3).
+#[tauri::command]
+async fn find_large_files(
+    store: State<'_, Mutex<ScanStore>>,
+    control: State<'_, ScanControl>,
+    path: String,
+    min_mb: u64,
+    ignored_paths: Vec<String>,
+) -> Result<Vec<CleanupItem>, String> {
+    let base = if path.is_empty() {
+        dirs::home_dir().ok_or("Cannot find your home folder.")?
+    } else {
+        PathBuf::from(&path)
+    };
+    if !base.is_dir() {
+        return Err("Choose an existing folder to search.".to_string());
+    }
+    let min_bytes = min_mb.clamp(10, 100_000).saturating_mul(1_000_000);
+
+    let cancelled = Arc::new(AtomicBool::new(false));
+    {
+        let mut guard = control.0.lock().map_err(lock_err)?;
+        *guard = cancelled.clone();
+    }
+
+    let search_base = base.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let flag = &cancelled;
+        let progress = |_: cleanup_engine::ScanProgress| {};
+        let hooks = cleanup_engine::ScanHooks {
+            cancelled: &|| flag.load(Ordering::Relaxed),
+            progress: &progress,
+        };
+        cleanup_engine::find_large_files(&search_base, min_bytes, &ignored_paths, &hooks)
+    })
+    .await
+    .map_err(|e| format!("Search failed: {e}"))?;
+
+    let Some(found) = result else {
+        return Err("Search cancelled.".to_string());
+    };
+
+    let items: Vec<CleanupItem> = found.iter().map(|s| s.item.clone()).collect();
+    let mut guard = store.lock().map_err(lock_err)?;
+    guard.items.retain(|_, v| v.item.module != "large_files");
+    guard
+        .items
+        .extend(found.into_iter().map(|s| (s.item.id.clone(), s)));
+    // Removal is only allowed under these roots; a search can run before any scan.
+    let mut roots: Vec<PathBuf> = vec![base];
+    roots.extend(dirs::home_dir());
+    for root in roots {
+        let root = std::fs::canonicalize(&root).unwrap_or(root);
+        if !guard.allowed_roots.contains(&root) {
+            guard.allowed_roots.push(root);
+        }
+    }
+    Ok(items)
+}
+
 /// Cancel the scan that is running now. Does not touch any files.
 #[tauri::command]
 fn cancel_scan(control: State<'_, ScanControl>) {
@@ -150,6 +212,12 @@ async fn cleanup_item(
             .remove(&id)
             .ok_or("This item is not part of the last scan, or is already being removed.")?;
         (item, guard.allowed_roots.clone(), guard.generation)
+    };
+    // The user's own files only ever go to the Trash, whatever mode the UI sent.
+    let mode = if item.item.module == "large_files" {
+        DeleteMode::TrashOnly
+    } else {
+        mode
     };
 
     let item_for_task = item.clone();
@@ -396,6 +464,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             scan_environment,
             cancel_scan,
+            find_large_files,
             cleanup_item,
             get_history,
             clear_history,

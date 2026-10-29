@@ -1,4 +1,4 @@
-import { Settings, Info, HardDrive, History } from 'lucide-react';
+import { Settings, Info, HardDrive, History, FileSearch } from 'lucide-react';
 import { formatBytes } from '../lib/tauri';
 
 interface SidebarProps {
@@ -17,6 +17,7 @@ const STEPS: { id: View; label: string; hint: string }[] = [
 ];
 
 const EXTRA: { id: View; label: string; icon: typeof Settings }[] = [
+  { id: 'large', label: 'Large files', icon: FileSearch },
   { id: 'history', label: 'History', icon: History },
   { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'about', label: 'About', icon: Info },

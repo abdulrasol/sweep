@@ -63,5 +63,5 @@ declare global {
     by_day: HistoryDay[];
   }
 
-  type View = 'scan' | 'review' | 'cleanup' | 'history' | 'settings' | 'about';
+  type View = 'scan' | 'review' | 'cleanup' | 'large' | 'history' | 'settings' | 'about';
 }

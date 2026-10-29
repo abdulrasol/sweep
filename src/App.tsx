@@ -9,6 +9,7 @@ import ExecutionView from './views/ExecutionView';
 import SettingsView from './views/SettingsView';
 import AboutView from './views/AboutView';
 import HistoryView from './views/HistoryView';
+import LargeFilesView from './views/LargeFilesView';
 import { invoke } from './lib/tauri';
 import { accentById } from './lib/accents';
 import { checkForUpdate, type UpdateState } from './lib/updates';
@@ -180,6 +181,8 @@ export default function App() {
             </button>
           </div>
         );
+      case 'large':
+        return <LargeFilesView scanPath={scanPath} ignoredPaths={ignoredPaths} onStartCleaning={startCleaning} />;
       case 'history':
         return <HistoryView />;
       case 'settings':
